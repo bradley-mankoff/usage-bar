@@ -60,3 +60,27 @@ struct PersistedState: Codable {
     let updatedAt: Date
     let snapshot: UsageSnapshot
 }
+
+/// Local NerfTrack projection persisted next to the last `omp usage` snapshot.
+struct PersistedNerfTrack: Codable {
+    let estimatedWeeklyValueUsd: Double?
+    let lastCalibratedUsd: Double?
+    let observedCostUsd: Double?
+    let weeklyUsedPercent: Double?
+    let status: String
+    let confidence: String
+    let validObservationCount: Int
+    let note: String
+}
+
+struct PersistedModelQuote: Codable {
+    let provider: String
+    let windowId: String
+    let windowLabel: String
+    let modelId: String
+    let displayName: String
+    let deliveredUsd: Double
+    let catalogIncludedMonthlyUsd: Double?
+    let catalogMultiplier: Double?
+    let note: String
+}

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import OmpUsageCore
 
 @MainActor
 final class UsageStore: ObservableObject {
@@ -10,7 +11,10 @@ final class UsageStore: ObservableObject {
     @Published var xaiWeeklyUsed: Double?
     /// True when the xAI report already carries a native weekly window.
     @Published var xaiNativeWeekly: Bool = false
-
+    /// Local NerfTrack weekly API-equivalent quote (never blocks the bar).
+    @Published var nerfTrack: NerfTrack.Quote?
+    /// Per-model pairings against each shared subscription meter.
+    @Published var modelValues: [ModelValue.Bundle] = []
     private var timer: Timer?
     private let refreshInterval: TimeInterval = 300 // aligns with omp's ~5 min usage cache
     private var samples: [XaiSample] = []
@@ -36,6 +40,9 @@ final class UsageStore: ObservableObject {
 
     func refresh() {
         Task {
+            let quoteTask = Task.detached(priority: .utility) {
+                (NerfTrack.loadFromOmp(), ModelValue.loadFromOmp())
+            }
             do {
                 let snap = try await Task.detached(priority: .utility) {
                     try UsageFetcher.fetchSync()
@@ -48,6 +55,11 @@ final class UsageStore: ObservableObject {
             } catch {
                 errorMessage = error.localizedDescription
             }
+            let (quote, models) = await quoteTask.value
+            nerfTrack = quote
+            modelValues = models
+            persistNerfTrack(quote)
+            persistModelValues(models)
         }
     }
 
@@ -97,6 +109,60 @@ final class UsageStore: ObservableObject {
         let state = PersistedState(updatedAt: Date(), snapshot: snapshot)
         if let data = try? encoder.encode(state) {
             try? data.write(to: dir.appendingPathComponent("state.json"))
+        }
+    }
+
+    private func persistNerfTrack(_ quote: NerfTrack.Quote) {
+        let fm = FileManager.default
+        let dir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("OmpUsageBar", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let state = PersistedNerfTrack(
+            estimatedWeeklyValueUsd: quote.estimatedWeeklyValueUsd,
+            lastCalibratedUsd: quote.lastCalibratedUsd,
+            observedCostUsd: quote.observedCostUsd,
+            weeklyUsedPercent: quote.weeklyUsedPercent,
+            status: quote.status.rawValue,
+            confidence: quote.confidence.rawValue,
+            validObservationCount: quote.validObservationCount,
+            note: quote.note
+        )
+        if let data = try? encoder.encode(state) {
+            try? data.write(to: dir.appendingPathComponent("nerftrack.json"))
+        }
+    }
+
+
+    func bundles(for provider: String) -> [ModelValue.Bundle] {
+        modelValues.filter { $0.provider == provider }
+    }
+
+    private func persistModelValues(_ bundles: [ModelValue.Bundle]) {
+        let fm = FileManager.default
+        let dir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("OmpUsageBar", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let rows: [PersistedModelQuote] = bundles.flatMap { bundle in
+            bundle.models.map { item in
+                PersistedModelQuote(
+                    provider: item.provider,
+                    windowId: item.windowId,
+                    windowLabel: bundle.windowLabel,
+                    modelId: item.modelId,
+                    displayName: item.displayName,
+                    deliveredUsd: item.deliveredUsd,
+                    catalogIncludedMonthlyUsd: item.catalogIncludedMonthlyUsd,
+                    catalogMultiplier: item.catalogMultiplier,
+                    note: item.note
+                )
+            }
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(rows) {
+            try? data.write(to: dir.appendingPathComponent("model-value.json"))
         }
     }
 }

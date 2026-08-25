@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import OmpUsageCore
 
 struct ContentView: View {
     @ObservedObject var store: UsageStore
@@ -24,7 +25,7 @@ struct ContentView: View {
                 }
                 .padding(12)
             }
-            .frame(width: 360, height: 300)
+            .frame(width: 380, height: 360)
             Divider()
             footer
         }
@@ -88,6 +89,12 @@ struct ContentView: View {
             if report.provider == "xai-oauth" && !store.xaiNativeWeekly {
                 derivedWeeklyRow
             }
+            if report.provider == "openai-codex" {
+                nerfTrackRow
+            }
+            ForEach(store.bundles(for: report.provider).filter { $0.windowLabel == "week" }) { bundle in
+                modelValueSection(bundle)
+            }
             if let notes = report.notes, !notes.isEmpty {
                 ForEach(notes, id: \.self) { note in
                     Text(note).font(.caption2).foregroundColor(.secondary)
@@ -146,6 +153,66 @@ struct ContentView: View {
                  : "Derived from the monthly counter (xAI exposes no weekly quota here).")
                 .font(.caption2)
                 .foregroundColor(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var nerfTrackRow: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("API-equivalent / week").font(.callout)
+                Spacer()
+                Text(nerfTrackValue)
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundColor(store.nerfTrack?.status == .valid ? .primary : .secondary)
+            }
+            Text(store.nerfTrack?.note ?? "Estimating local Codex token cost\u{2026}")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var nerfTrackValue: String {
+        guard let quote = store.nerfTrack else { return "\u{2014}" }
+        if let current = quote.estimatedWeeklyValueUsd {
+            return "\u{2248}$\(fmt0(current))"
+        }
+        if let last = quote.lastCalibratedUsd {
+            return "last \u{2248}$\(fmt0(last))"
+        }
+        return "\u{2014}"
+    }
+
+    private func fmt0(_ value: Double) -> String {
+        String(format: "%.0f", value.rounded())
+    }
+
+    @ViewBuilder
+    private func modelValueSection(_ bundle: ModelValue.Bundle) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Delivered this \(bundle.windowLabel)")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            ForEach(bundle.models) { item in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(item.displayName).font(.callout)
+                    Spacer()
+                    if let mult = item.catalogMultiplier {
+                        Text(mult == mult.rounded() ? "\(Int(mult))\u{00D7}" : String(format: "%.1f\u{00D7}", mult))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    Text("$\(fmt2(item.deliveredUsd))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+            }
+            if let note = bundle.models.first?.note {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
