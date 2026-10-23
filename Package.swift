@@ -6,7 +6,6 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "OmpUsageBar", targets: ["OmpUsageBar"]),
-        .executable(name: "NerfTrackCheck", targets: ["NerfTrackCheck"]),
         .library(name: "OmpUsageCore", targets: ["OmpUsageCore"]),
     ],
     targets: [
@@ -19,11 +18,6 @@ let package = Package(
             name: "OmpUsageBar",
             dependencies: ["OmpUsageCore"],
             path: "Sources/OmpUsageBar"
-        ),
-        .executableTarget(
-            name: "NerfTrackCheck",
-            dependencies: ["OmpUsageCore"],
-            path: "Sources/NerfTrackCheck"
         ),
         .testTarget(
             name: "OmpUsageCoreTests",
