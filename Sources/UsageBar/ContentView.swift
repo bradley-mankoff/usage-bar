@@ -11,6 +11,9 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     subscriptionSection("Claude", store.claude)
                     subscriptionSection("OpenCode Go", store.openCodeGo)
+                    ForEach(store.codexSeats) { seat in
+                        subscriptionSection("Codex", seat.result, subtitle: seat.email)
+                    }
                     openRouterSection
                     jevSection
                 }
@@ -63,15 +66,26 @@ struct ContentView: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
     }
 
+    /// Nil while loading shows a placeholder; nil after the first fetch hides
+    /// the section (no credential on this machine).
     @ViewBuilder
-    private func subscriptionSection(_ title: String, _ result: Result<SubscriptionUsage, Error>?) -> some View {
+    private func subscriptionSection(
+        _ title: String, _ result: Result<SubscriptionUsage, Error>?, subtitle: String? = nil
+    ) -> some View {
         switch result {
         case nil:
-            card(title, nil) { placeholder("Fetching\u{2026}") }
+            if !store.firstFetchDone {
+                card(title, subtitle) { placeholder("Fetching\u{2026}") }
+            }
         case .failure(let error):
-            card(title, nil) { errorText(error) }
+            card(title, subtitle) { errorText(error) }
         case .success(let sub):
-            card(title, sub.plan) {
+            card(title, sub.plan ?? subtitle) {
+                if sub.windows.isEmpty {
+                    Text("No rate-limit windows reported.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 ForEach(sub.windows) { window in
                     meterRow(
                         window.label,
@@ -88,7 +102,9 @@ struct ContentView: View {
     private var openRouterSection: some View {
         switch store.openRouter {
         case nil:
-            card("OpenRouter", "credits") { placeholder("Fetching\u{2026}") }
+            if !store.firstFetchDone {
+                card("OpenRouter", "credits") { placeholder("Fetching\u{2026}") }
+            }
         case .failure(let error):
             card("OpenRouter", "credits") { errorText(error) }
         case .success(let credits):

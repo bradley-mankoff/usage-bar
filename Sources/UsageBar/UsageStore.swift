@@ -2,12 +2,23 @@ import Foundation
 import SwiftUI
 import UsageCore
 
+/// One Codex seat on this machine, labeled by its login email.
+struct CodexSeatState: Identifiable {
+    var id: String { email }
+    let email: String
+    var result: Result<SubscriptionUsage, Error>?
+}
+
 @MainActor
 final class UsageStore: ObservableObject {
-    /// Nil until the first fetch finishes; each provider fails on its own.
+    /// Nil means hide the section: no credential on this machine (loading is
+    /// tracked separately by firstFetchDone). A present Result, ok or not,
+    /// always renders.
     @Published var claude: Result<SubscriptionUsage, Error>?
     @Published var openCodeGo: Result<SubscriptionUsage, Error>?
     @Published var openRouter: Result<OpenRouter.Credits, Error>?
+    @Published var codexSeats: [CodexSeatState] = []
+    @Published var firstFetchDone = false
     @Published var lastUpdated: Date?
     private var timer: Timer?
     private let refreshInterval: TimeInterval = 300
@@ -21,11 +32,13 @@ final class UsageStore: ObservableObject {
 
     var subscriptions: [SubscriptionUsage] {
         [claude, openCodeGo].compactMap { try? $0?.get() }
+            + codexSeats.compactMap { try? $0.result?.get() }.filter { $0.monthlyValueUsd > 0 }
     }
 
-    /// Dollar-weighted weekly percent across subscriptions (see
-    /// SubscriptionValue), then OpenRouter's remaining dollars, e.g.
+    /// Dollar-weighted weekly percent across subscriptions with a known value
+    /// (see SubscriptionValue), then OpenRouter's remaining dollars, e.g.
     /// `25% · $16.62`. OpenRouter never feeds the percent: it has no window.
+    /// Codex seats are cards only until their Business value is known.
     var barLabel: String {
         var parts: [String] = []
         if let frac = SubscriptionValue.weightedWeeklyFraction(subscriptions) {
@@ -35,7 +48,7 @@ final class UsageStore: ObservableObject {
         if let credits = try? openRouter?.get(), credits.totalCredits > 0 {
             parts.append(String(format: "$%.2f", credits.remaining))
         }
-        if parts.isEmpty { return lastUpdated == nil ? "…" : "?" }
+        if parts.isEmpty { return firstFetchDone ? "?" : "…" }
         return parts.joined(separator: " · ")
     }
 
@@ -44,12 +57,30 @@ final class UsageStore: ObservableObject {
             async let claude = Self.capture { try await Claude.fetch() }
             async let go = Self.capture { try await OpenCodeGo.fetch() }
             async let credits = Self.capture { try await OpenRouter.fetch() }
+            let seats = await Task.detached(priority: .utility) { Codex.loadSeats() }.value
+            var seatResults: [(String, Result<SubscriptionUsage, Error>?)] = []
+            await withTaskGroup(of: (String, Result<SubscriptionUsage, Error>?).self) { group in
+                for seat in seats {
+                    group.addTask {
+                        await (seat.email, Self.capture { try await Codex.fetch(seat: seat) })
+                    }
+                }
+                for await row in group { seatResults.append(row) }
+            }
             (self.claude, self.openCodeGo, self.openRouter) = await (claude, go, credits)
+            self.codexSeats = seatResults
+                .sorted { $0.0 < $1.0 }
+                .map { CodexSeatState(email: $0.0, result: $0.1) }
             lastUpdated = Date()
+            firstFetchDone = true
         }
     }
 
-    nonisolated private static func capture<T>(_ body: () async throws -> T) async -> Result<T, Error> {
-        do { return .success(try await body()) } catch { return .failure(error) }
+    /// A missing credential hides the section; any other failure renders.
+    nonisolated private static func capture<T>(_ body: @Sendable () async throws -> T) async -> Result<T, Error>? {
+        do { return .success(try await body()) } catch {
+            if let usage = error as? UsageError, case .missingCredential = usage { return nil }
+            return .failure(error)
+        }
     }
 }

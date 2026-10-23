@@ -9,7 +9,7 @@ let package = Package(
         .library(name: "UsageCore", targets: ["UsageCore"]),
     ],
     targets: [
-        .target(name: "UsageCore", path: "Sources/UsageCore"),
+        .target(name: "UsageCore", path: "Sources/UsageCore", linkerSettings: [.linkedLibrary("sqlite3")]),
         .executableTarget(name: "UsageBar", dependencies: ["UsageCore"], path: "Sources/UsageBar"),
         .testTarget(name: "UsageCoreTests", dependencies: ["UsageCore"], path: "Tests/UsageCoreTests"),
     ]
