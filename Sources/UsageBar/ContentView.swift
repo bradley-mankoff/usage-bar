@@ -113,7 +113,7 @@ struct ContentView: View {
                     .foregroundColor(.secondary)
                 Spacer()
                 Button("Open console") {
-                    NSWorkspace.shared.open(URL(string: "https://console.typesafe.ai/")!)
+                    NSWorkspace.shared.open(URL(string: "https://console.typesafe.ai/usage")!)
                 }
                 .font(.caption)
             }
