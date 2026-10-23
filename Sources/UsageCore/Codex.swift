@@ -12,12 +12,14 @@ import SQLite3
 public enum Codex {
     public struct Seat: Equatable, Sendable {
         public let email: String
+        public let accountId: String
         public let accessToken: String
         public let refreshToken: String
         public let expiresAt: Date
 
-        public init(email: String, accessToken: String, refreshToken: String, expiresAt: Date) {
+        public init(email: String, accountId: String, accessToken: String, refreshToken: String, expiresAt: Date) {
             self.email = email
+            self.accountId = accountId
             self.accessToken = accessToken
             self.refreshToken = refreshToken
             self.expiresAt = expiresAt
@@ -31,7 +33,7 @@ public enum Codex {
     /// stored access token is tried as-is.
     static let clientId = "app_EMoamEEZ73f0CKWBarQMYQ9aHoQPYhFv"
     static let tokenURL = "https://auth.openai.com/oauth/token"
-    static let usageURL = "https://chatgpt.com/backend-api/codex/usage"
+    static let usageURL = "https://chatgpt.com/backend-api/wham/usage"
 
     /// Every signed-in seat on this machine. Empty when omp never signed in
     /// here; the caller hides the Codex section in that case.
@@ -53,9 +55,11 @@ public enum Codex {
                   let refresh = obj["refresh"] as? String, !refresh.isEmpty
             else { continue }
             let email = (obj["email"] as? String)?.isEmpty == false ? (obj["email"] as? String)! : "unknown seat"
+            let accountId = obj["accountId"] as? String ?? ""
             let expires = (obj["expires"] as? NSNumber)?.doubleValue ?? 0
             seats.append(Seat(
                 email: email,
+                accountId: accountId,
                 accessToken: access,
                 refreshToken: refresh,
                 expiresAt: Date(timeIntervalSince1970: expires / 1000)
@@ -66,22 +70,24 @@ public enum Codex {
 
     public static func fetch(seat: Seat) async throws -> SubscriptionUsage {
         let token = seat.isExpired ? (try? await refreshedAccessToken(seat)) ?? seat.accessToken : seat.accessToken
+        var headers = ["Authorization": "Bearer \(token)"]
+        if !seat.accountId.isEmpty { headers["ChatGPT-Account-Id"] = seat.accountId }
         let body: Data
         do {
-            body = try await HTTP.get(usageURL, headers: [
-                "Authorization": "Bearer \(token)",
-            ], what: "Codex usage")
+            body = try await HTTP.get(usageURL, headers: headers, what: "Codex usage")
         } catch let error as UsageError {
             if case .http(let status, _) = error, status == 401 || status == 403 {
                 throw UsageError.reauth("Codex")
             }
             throw error
         }
+        let (windows, note) = try parse(body)
         return SubscriptionUsage(
             name: "Codex",
             plan: seat.email,
             monthlyValueUsd: 0,
-            windows: try parse(body)
+            windows: windows,
+            note: note
         )
     }
 
@@ -109,27 +115,43 @@ public enum Codex {
         return decoded.access_token
     }
 
-    /// Shape confirmed against the live endpoint; see UsageTests fixtures.
-    public static func parse(_ data: Data) throws -> [UsageWindow] {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+    /// Shape confirmed against the live endpoint 2026-10-23 (both seats of a
+    /// Business workspace); see UsageTests fixtures. `used_percent` is 0-100
+    /// and `reset_at` is epoch seconds.
+    public static func parse(_ data: Data) throws -> (windows: [UsageWindow], note: String?) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rate = root["rate_limit"] as? [String: Any]
+        else {
             throw UsageError.badResponse("Codex usage")
         }
         let specs: [(key: String, label: String, isWeekly: Bool)] = [
-            ("primary", "5 Hour", false),
-            ("secondary", "Weekly", true),
+            ("primary_window", "5 Hour", false),
+            ("secondary_window", "Weekly", true),
         ]
-        return specs.compactMap { spec in
-            guard let window = root[spec.key] as? [String: Any] else { return nil }
-            let fraction = (window["used_percent"] as? NSNumber)?.doubleValue
-                ?? (window["utilization"] as? NSNumber).map { $0.doubleValue / 100 }
-            guard let fraction else { return nil }
+        let windows = specs.compactMap { spec -> UsageWindow? in
+            guard let window = rate[spec.key] as? [String: Any],
+                  let percent = (window["used_percent"] as? NSNumber)?.doubleValue
+            else { return nil }
+            var reset: Date?
+            if let epoch = (window["reset_at"] as? NSNumber)?.doubleValue {
+                reset = Date(timeIntervalSince1970: epoch > 1e11 ? epoch / 1000 : epoch)
+            }
             return UsageWindow(
                 id: "openai-codex:\(spec.key)",
                 label: spec.label,
-                usedFraction: fraction > 1 ? fraction / 100 : fraction,
-                resetsAt: parseISODate(window["resets_at"] as? String),
+                usedFraction: percent / 100,
+                resetsAt: reset,
                 isWeekly: spec.isWeekly
             )
         }
+        var note: String?
+        if let upsell = root["rate_limit_upsell"] as? [String: Any],
+           let description = upsell["description"] as? String, !description.isEmpty
+        {
+            note = description
+        } else if (rate["limit_reached"] as? Bool) == true {
+            note = "Limit reached."
+        }
+        return (windows, note)
     }
 }

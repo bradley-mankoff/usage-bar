@@ -25,12 +25,14 @@ public struct SubscriptionUsage: Equatable, Sendable {
     public var plan: String?
     public var monthlyValueUsd: Double
     public var windows: [UsageWindow]
+    public var note: String?
 
-    public init(name: String, plan: String?, monthlyValueUsd: Double, windows: [UsageWindow]) {
+    public init(name: String, plan: String?, monthlyValueUsd: Double, windows: [UsageWindow], note: String? = nil) {
         self.name = name
         self.plan = plan
         self.monthlyValueUsd = monthlyValueUsd
         self.windows = windows
+        self.note = note
     }
 
     public var weeklyFraction: Double? {

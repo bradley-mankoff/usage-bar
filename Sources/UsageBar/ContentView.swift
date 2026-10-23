@@ -81,6 +81,9 @@ struct ContentView: View {
             card(title, subtitle) { errorText(error) }
         case .success(let sub):
             card(title, sub.plan ?? subtitle) {
+                if let note = sub.note {
+                    Text(note).font(.caption).foregroundColor(.orange)
+                }
                 if sub.windows.isEmpty {
                     Text("No rate-limit windows reported.")
                         .font(.caption)

@@ -51,6 +51,39 @@ final class UsageTests: XCTestCase {
         XCTAssertNil(SubscriptionValue.weightedWeeklyFraction([]))
     }
 
+    func testCodexParsesWhamUsage() throws {
+        let json = """
+        {"email": "a-seat@example.com", "plan_type": "team",
+         "rate_limit": {"allowed": true, "limit_reached": false,
+          "primary_window": {"used_percent": 42, "limit_window_seconds": 18000, "reset_at": 1792798913},
+          "secondary_window": {"used_percent": 7, "limit_window_seconds": 604800, "reset_at": 1793385713}}}
+        """
+        let (windows, note) = try Codex.parse(Data(json.utf8))
+        XCTAssertEqual(windows.map(\.id), ["openai-codex:primary_window", "openai-codex:secondary_window"])
+        XCTAssertEqual(windows[0].usedFraction, 0.42, accuracy: 1e-9)
+        XCTAssertFalse(windows[0].isWeekly)
+        XCTAssertEqual(windows[1].usedFraction, 0.07, accuracy: 1e-9)
+        XCTAssertTrue(windows[1].isWeekly)
+        XCTAssertEqual(windows[0].resetsAt, Date(timeIntervalSince1970: 1792798913))
+        XCTAssertNil(note)
+    }
+
+    func testCodexSurfacesWorkspaceUpsell() throws {
+        let json = """
+        {"rate_limit": {"allowed": false, "limit_reached": true,
+          "primary_window": {"used_percent": 100, "reset_at": 1792798657},
+          "secondary_window": {"used_percent": 16, "reset_at": 1793385457}},
+         "rate_limit_upsell": {"description": "Your workspace is out of credits. Add credits to continue using Codex."}}
+        """
+        let (windows, note) = try Codex.parse(Data(json.utf8))
+        XCTAssertEqual(windows[0].usedFraction, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(note, "Your workspace is out of credits. Add credits to continue using Codex.")
+    }
+
+    func testCodexRejectsForeignShape() {
+        XCTAssertThrowsError(try Codex.parse(Data(#"{"usage": {}}"#.utf8)))
+    }
+
     func testClaudePlanValue() {
         XCTAssertEqual(SubscriptionValue.claudeUsd(plan: "pro", tier: "default_claude_ai"), 150)
         XCTAssertEqual(SubscriptionValue.claudeUsd(plan: "max", tier: "default_claude_max_5x"), 750)
