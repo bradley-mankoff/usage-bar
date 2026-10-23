@@ -41,12 +41,14 @@ public struct SubscriptionUsage: Equatable, Sendable {
 public enum UsageError: LocalizedError {
     case missingCredential(String)
     case http(Int, String)
+    case reauth(String)
     case badResponse(String)
 
     public var errorDescription: String? {
         switch self {
         case .missingCredential(let what): return "No credential: \(what)"
         case .http(let status, let what): return "\(what) returned HTTP \(status)"
+        case .reauth(let what): return "\(what) sign-in expired \u{2014} sign this seat in again"
         case .badResponse(let what): return "Could not read the \(what) response"
         }
     }

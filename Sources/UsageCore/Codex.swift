@@ -66,9 +66,17 @@ public enum Codex {
 
     public static func fetch(seat: Seat) async throws -> SubscriptionUsage {
         let token = seat.isExpired ? (try? await refreshedAccessToken(seat)) ?? seat.accessToken : seat.accessToken
-        let body = try await HTTP.get(usageURL, headers: [
-            "Authorization": "Bearer \(token)",
-        ], what: "Codex usage")
+        let body: Data
+        do {
+            body = try await HTTP.get(usageURL, headers: [
+                "Authorization": "Bearer \(token)",
+            ], what: "Codex usage")
+        } catch let error as UsageError {
+            if case .http(let status, _) = error, status == 401 || status == 403 {
+                throw UsageError.reauth("Codex")
+            }
+            throw error
+        }
         return SubscriptionUsage(
             name: "Codex",
             plan: seat.email,
