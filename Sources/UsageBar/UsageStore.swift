@@ -76,10 +76,18 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// A missing credential hides the section; any other failure renders.
+    /// Not authed (no credential, expired sign-in, rejected token) hides
+    /// the section; any other failure renders. So a dead seat vanishes
+    /// instead of showing an error card.
     nonisolated private static func capture<T>(_ body: @Sendable () async throws -> T) async -> Result<T, Error>? {
         do { return .success(try await body()) } catch {
-            if let usage = error as? UsageError, case .missingCredential = usage { return nil }
+            if let usage = error as? UsageError {
+                switch usage {
+                case .missingCredential, .reauth: return nil
+                case .http(let status, _) where status == 401 || status == 403: return nil
+                default: break
+                }
+            }
             return .failure(error)
         }
     }
