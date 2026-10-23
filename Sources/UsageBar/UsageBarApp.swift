@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct OmpUsageBarApp: App {
+struct UsageBarApp: App {
     @StateObject private var store = UsageStore()
 
     var body: some Scene {

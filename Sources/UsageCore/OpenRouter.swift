@@ -1,5 +1,4 @@
 import Foundation
-import SQLite3
 
 /// OpenRouter pay-as-you-go credits, in dollars.
 public enum OpenRouter {
@@ -40,30 +39,8 @@ public enum OpenRouter {
         return Credits(totalCredits: total, totalUsage: used)
     }
 
-    /// `OPENROUTER_API_KEY`, then an `openrouter` entry in pi's auth.json,
-    /// then omp's credential store. The omp fallback exists because, as of
-    /// 2026-10-23, omp's database is the only place a working key lives;
-    /// remove it once the key is in pi.
+    /// `OPENROUTER_API_KEY`, then the `openrouter` entry in pi's auth.json.
     static func apiKey() -> String? {
-        Credentials.env("OPENROUTER_API_KEY")
-            ?? Credentials.piApiKey(provider: "openrouter")
-            ?? ompKey()
-    }
-
-    private static func ompKey() -> String? {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".omp/agent/agent.db").path
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return nil }
-        defer { sqlite3_close(db) }
-        var stmt: OpaquePointer?
-        let sql = "SELECT data FROM auth_credentials WHERE provider = 'openrouter' LIMIT 1"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_step(stmt) == SQLITE_ROW, let text = sqlite3_column_text(stmt, 0),
-              let obj = try? JSONSerialization.jsonObject(with: Data(String(cString: text).utf8)) as? [String: Any],
-              let key = obj["key"] as? String, !key.isEmpty
-        else { return nil }
-        return key
+        Credentials.env("OPENROUTER_API_KEY") ?? Credentials.piApiKey(provider: "openrouter")
     }
 }

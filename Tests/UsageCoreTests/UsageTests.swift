@@ -1,5 +1,5 @@
 import XCTest
-@testable import OmpUsageCore
+@testable import UsageCore
 
 /// Fixtures are trimmed copies of real responses captured 2026-10-23.
 final class UsageTests: XCTestCase {

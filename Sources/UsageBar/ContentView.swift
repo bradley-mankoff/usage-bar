@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import OmpUsageCore
+import UsageCore
 
 struct ContentView: View {
     @ObservedObject var store: UsageStore

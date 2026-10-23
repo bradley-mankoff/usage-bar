@@ -1,6 +1,6 @@
 import Foundation
 import SwiftUI
-import OmpUsageCore
+import UsageCore
 
 @MainActor
 final class UsageStore: ObservableObject {

@@ -2,27 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "OmpUsageBar",
+    name: "UsageBar",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "OmpUsageBar", targets: ["OmpUsageBar"]),
-        .library(name: "OmpUsageCore", targets: ["OmpUsageCore"]),
+        .executable(name: "UsageBar", targets: ["UsageBar"]),
+        .library(name: "UsageCore", targets: ["UsageCore"]),
     ],
     targets: [
-        .target(
-            name: "OmpUsageCore",
-            path: "Sources/OmpUsageCore",
-            linkerSettings: [.linkedLibrary("sqlite3")]
-        ),
-        .executableTarget(
-            name: "OmpUsageBar",
-            dependencies: ["OmpUsageCore"],
-            path: "Sources/OmpUsageBar"
-        ),
-        .testTarget(
-            name: "OmpUsageCoreTests",
-            dependencies: ["OmpUsageCore"],
-            path: "Tests/OmpUsageCoreTests"
-        ),
+        .target(name: "UsageCore", path: "Sources/UsageCore"),
+        .executableTarget(name: "UsageBar", dependencies: ["UsageCore"], path: "Sources/UsageBar"),
+        .testTarget(name: "UsageCoreTests", dependencies: ["UsageCore"], path: "Tests/UsageCoreTests"),
     ]
 )
