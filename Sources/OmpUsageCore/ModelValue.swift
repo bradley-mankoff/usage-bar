@@ -65,29 +65,114 @@ public enum ModelValue {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let agent = (agentDB ?? home.appendingPathComponent(".omp/agent/agent.db")).path
         let stats = (statsDB ?? home.appendingPathComponent(".omp/stats.db")).path
-        let specs: [(provider: String, limitId: String, label: String)] = [
-            ("openai-codex", "openai-codex:primary", "week"),
-            ("opencode-go", "weekly", "week"),
-            ("opencode-go", "monthly", "month"),
+        let specs: [(provider: String, limitId: String, windowId: String, label: String)] = [
+            ("openai-codex", "openai-codex:primary", "openai-codex:primary", "week"),
+            ("xai-oauth", "xai-oauth:credits:1w", "xai-oauth:credits:1w", "week"),
+            ("opencode-go", "weekly", "weekly", "week"),
+            ("opencode-go", "monthly", "monthly", "month"),
         ]
-        return specs.compactMap { spec in
+        var bundles: [Bundle] = specs.compactMap { spec in
             let observations = loadObservations(path: agent, provider: spec.provider, limitId: spec.limitId)
             let events = loadEvents(path: stats, provider: spec.provider)
             guard !observations.isEmpty, !events.isEmpty else { return nil }
             let quotes = estimate(
                 provider: spec.provider,
-                windowId: spec.limitId,
+                windowId: spec.windowId,
                 observations: observations,
                 events: events
             )
             guard !quotes.isEmpty else { return nil }
             return Bundle(
                 provider: spec.provider,
-                windowId: spec.limitId,
+                windowId: spec.windowId,
                 windowLabel: spec.label,
                 models: quotes
             )
         }
+        // xAI note: usage_history for xai-oauth:credits:1w never regresses
+        // (0 -> 100% monotonic across resets), so windowGroups yields one
+        // giant window and estimate() prices all 1517 token rows since 08-03
+        // against the current cycle.
+        if !bundles.contains(where: { $0.provider == "xai-oauth" }),
+           let prev = xaiLatestPricedCycleBundle(agentPath: agent, statsPath: stats) {
+            bundles.append(prev)
+        }
+        return bundles
+    }
+
+    /// Reprice xAI tokens from the most recent cycle that has any priced
+    /// token events. omp stopped writing xai-oauth rows after 09-10, so the
+    /// current cycle is empty; walking back to the latest priced cycle keeps
+    /// the row showing a real measured value. Nil when no cycle prices.
+    static func xaiLatestPricedCycleBundle(agentPath: String, statsPath: String) -> Bundle? {
+        let resets = loadResetBoundaries(path: agentPath, provider: "xai-oauth", limitId: "xai-oauth:credits:1w")
+        guard !resets.isEmpty else { return nil }
+        let events = loadEvents(path: statsPath, provider: "xai-oauth")
+        guard !events.isEmpty else { return nil }
+        let bounds: [Int64] = [0] + resets
+        for i in (1..<bounds.count).reversed() {
+            let start = bounds[i - 1]
+            let end = bounds[i]
+            // Cycle windows are (prevReset, reset]: usage_history rows carry
+            // the upcoming reset, so events land in the first window whose
+            // end is at/after the event. Using strict > on the event side
+            // matches estimate()'s (startMs, endMs] convention.
+            let inCycle = events.filter { $0.timestampMs > start && $0.timestampMs <= end }
+            guard !inCycle.isEmpty else { continue }
+            var byModel: [String: Double] = [:]
+            for event in inCycle {
+                let cost = xaiListPrice(event)
+                guard cost.isFinite, cost > 0 else { continue }
+                byModel[GoCatalog.normalize(event.model), default: 0] += cost
+            }
+            let quotes = byModel.keys.sorted().compactMap { modelId -> ModelQuote? in
+                let delivered = byModel[modelId] ?? 0
+                guard delivered > 0 else { return nil }
+                return ModelQuote(
+                    provider: "xai-oauth",
+                    windowId: "xai-oauth:credits:1w",
+                    modelId: modelId,
+                    displayName: displayNameFor(provider: "xai-oauth", modelId: modelId),
+                    deliveredUsd: delivered,
+                    catalogIncludedMonthlyUsd: nil,
+                    catalogMultiplier: nil,
+                    listPriced: true,
+                    note: "latest priced cycle · list-priced Grok API tokens"
+                )
+            }.sorted { $0.deliveredUsd > $1.deliveredUsd }
+            guard !quotes.isEmpty else { continue }
+            return Bundle(
+                provider: "xai-oauth",
+                windowId: "xai-oauth:credits:1w",
+                windowLabel: "week",
+                models: quotes
+            )
+        }
+        return nil
+    }
+
+    /// Distinct cycle-end boundaries from usage_history resets, ascending.
+    static func loadResetBoundaries(path: String, provider: String, limitId: String) -> [Int64] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            return []
+        }
+        defer { sqlite3_close(db) }
+        let sql = """
+        SELECT DISTINCT resets_at FROM usage_history
+        WHERE provider = ?1 AND limit_id = ?2 AND resets_at IS NOT NULL
+        ORDER BY resets_at
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, provider, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(stmt, 2, limitId, -1, SQLITE_TRANSIENT)
+        var out: [Int64] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            out.append(sqlite3_column_int64(stmt, 0))
+        }
+        return out
     }
 
     public static func estimate(
@@ -96,7 +181,6 @@ public enum ModelValue {
         observations: [NerfTrack.Observation],
         events: [TokenEvent]
     ) -> [ModelQuote] {
-        let reprice = provider == "opencode-go"
         let windows = NerfTrack.windowGroups(NerfTrack.dedupedObservations(observations))
         guard let current = windows.last, let endMs = current.points.last?.timestampMs else {
             return []
@@ -107,9 +191,13 @@ public enum ModelValue {
             guard event.timestampMs > startMs, event.timestampMs <= endMs else { continue }
             let id = GoCatalog.normalize(event.model)
             let cost: Double
-            if reprice, let priced = listPrice(event) {
+            switch provider {
+            case "opencode-go":
+                guard let priced = listPrice(event) else { continue }
                 cost = priced
-            } else {
+            case "xai-oauth":
+                cost = xaiListPrice(event)
+            default:
                 cost = event.costUsd
             }
             guard cost.isFinite, cost > 0 else { continue }
@@ -119,19 +207,50 @@ public enum ModelValue {
             let delivered = byModel[modelId] ?? 0
             guard delivered > 0 else { return nil }
             let catalog = provider == "opencode-go" ? GoCatalog.lookup(modelId) : nil
+            let repriced: Bool
+            let note: String
+            switch provider {
+            case "opencode-go":
+                repriced = catalog != nil
+                note = annotate(delivered: delivered, catalog: catalog, reprice: true)
+            case "xai-oauth":
+                repriced = true
+                note = "delivered this window · list-priced Grok API tokens"
+            default:
+                repriced = false
+                note = annotate(delivered: delivered, catalog: nil, reprice: false)
+            }
             return ModelQuote(
                 provider: provider,
                 windowId: windowId,
                 modelId: modelId,
-                displayName: catalog?.displayName ?? modelId,
+                displayName: displayNameFor(provider: provider, modelId: modelId),
                 deliveredUsd: delivered,
                 catalogIncludedMonthlyUsd: catalog?.includedMonthlyUsd,
                 catalogMultiplier: catalog?.multiplier,
-                listPriced: reprice && catalog != nil,
-                note: annotate(delivered: delivered, catalog: catalog, reprice: reprice)
+                listPriced: repriced,
+                note: note
             )
         }
         .sorted { $0.deliveredUsd > $1.deliveredUsd }
+    }
+
+    static func displayNameFor(provider: String, modelId: String) -> String {
+        if provider == "xai-oauth" { return GoCatalog.xaiLookup(modelId).displayName }
+        return GoCatalog.displayName(modelId)
+    }
+
+    /// List-price one xAI token event at current Grok API rates. Unknown
+    /// models fall back to Grok 4.6 rates.
+    static func xaiListPrice(_ event: TokenEvent) -> Double {
+        let model = GoCatalog.xaiLookup(event.model)
+        var usd = event.inputTokens * model.inputPerM / 1_000_000
+            + event.outputTokens * model.outputPerM / 1_000_000
+            + event.cacheReadTokens * model.cachedReadPerM / 1_000_000
+        if let write = model.cachedWritePerM {
+            usd += event.cacheWriteTokens * write / 1_000_000
+        }
+        return usd
     }
 
     public static func displayAmount(_ item: ModelQuote) -> Double {

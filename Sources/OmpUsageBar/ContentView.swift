@@ -13,10 +13,11 @@ struct ContentView: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(store.snapshot?.reports ?? [], id: \.provider) { report in
+                    ForEach(sortedReports, id: \.provider) { report in
                         providerSection(report)
                     }
-                    if store.snapshot?.reports.isEmpty ?? true {
+                    openRouterSection
+                    if sortedReports.isEmpty && !showOpenRouter {
                         Text("No usage data yet — is `omp` authenticated?")
                             .font(.callout)
                             .foregroundColor(.secondary)
@@ -25,10 +26,28 @@ struct ContentView: View {
                 }
                 .padding(12)
             }
-            .frame(width: 380, height: 360)
+            .frame(width: 380)
+            .frame(maxHeight: 800)
+            .fixedSize(horizontal: false, vertical: true)
             Divider()
             footer
         }
+    }
+
+    /// Active subscriptions first; ended ones sink to the bottom.
+    private var sortedReports: [ProviderReport] {
+        (store.snapshot?.reports ?? []).sorted {
+            ($0.isInactive ? 1 : 0) < ($1.isInactive ? 1 : 0)
+        }
+    }
+
+    /// Show OpenRouter whenever we have credits, a key, or omp lists the
+    /// account as having no usage data (its way of saying "API key").
+    private var showOpenRouter: Bool {
+        if store.openRouter != nil || store.openRouterKeyFound { return true }
+        return store.snapshot?.accountsWithoutUsage?.contains {
+            $0.provider == "openrouter"
+        } ?? false
     }
 
     @ViewBuilder
@@ -76,9 +95,18 @@ struct ContentView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(displayName(report.provider)).font(.headline)
                 Spacer()
-                if let plan = report.metadata?.planType {
+                if report.isInactive {
+                    Text("Subscription ended")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                } else if let plan = report.metadata?.planType {
                     Text(plan).font(.caption).foregroundColor(.secondary)
                 }
+            }
+            if report.isInactive {
+                Text("Inactive — ended plan. Not counted in the menu-bar %.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
             if let email = report.metadata?.email {
                 Text(email).font(.caption).foregroundColor(.secondary)
@@ -86,8 +114,8 @@ struct ContentView: View {
             ForEach(report.limits, id: \.id) { limit in
                 limitRow(limit)
             }
-            if report.provider == "xai-oauth" && !store.xaiNativeWeekly {
-                derivedWeeklyRow
+            if report.provider == "xai-oauth" {
+                xaiValueRow
             }
             if report.provider == "openai-codex" {
                 nerfTrackRow
@@ -106,6 +134,52 @@ struct ContentView: View {
         .background(
             RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05))
         )
+    }
+
+    @ViewBuilder
+    private var openRouterSection: some View {
+        if showOpenRouter {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("OpenRouter").font(.headline)
+                    Spacer()
+                    Text("pay-as-you-go").font(.caption).foregroundColor(.secondary)
+                }
+                if let credits = store.openRouter {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Credits").font(.callout)
+                        Spacer()
+                        Text("$\(fmt2(credits.remaining)) left of $\(fmt2(credits.totalCredits))")
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundColor(severity(credits.usedFraction))
+                    }
+                    if let frac = credits.usedFraction {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.primary.opacity(0.12))
+                                Capsule()
+                                    .fill(severity(frac))
+                                    .frame(width: max(geo.size.width * CGFloat(min(max(frac, 0), 1)), 4))
+                            }
+                        }
+                        .frame(height: 6)
+                    }
+                    Text("omp reports no usage for API-key providers; fetched from OpenRouter directly.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Fetching OpenRouter credits\u{2026}")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05))
+            )
+        }
     }
 
     @ViewBuilder
@@ -136,24 +210,44 @@ struct ContentView: View {
         }
     }
 
+    /// xAI API value this cycle: weekly pool percent burned times the
+    /// API-equivalent monthly value, scaled to one week. The pool percent is
+    /// the source of truth: omp only logs tokens for CLI-driven usage, so
+    /// repricing token rows undercounts everything done on grok.com/X/apps.
+    /// A per-model token breakdown follows in "Delivered this week" when the
+    /// current cycle has priced token rows.
     @ViewBuilder
-    private var derivedWeeklyRow: some View {
+    private var xaiValueRow: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Last 7 days").font(.callout)
+                Text("API value this cycle").font(.callout)
                 Spacer()
-                if let used = store.xaiWeeklyUsed {
-                    Text(fmtNum(used)).font(.caption).monospacedDigit()
-                } else {
-                    Text("\u{2014}").font(.caption).foregroundColor(.secondary)
-                }
+                Text(xaiValueText)
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundColor(xaiPoolValue == nil ? .secondary : .primary)
             }
-            Text(store.xaiWeeklyUsed == nil
-                 ? "Collecting samples\u{2026} derived from the monthly counter (xAI exposes no weekly quota here)."
-                 : "Derived from the monthly counter (xAI exposes no weekly quota here).")
+            Text("Weekly pool used × API-equiv value, scaled to one week.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
+    }
+
+    /// Weekly pool fraction burned times the subscription's API-equivalent
+    /// monthly value, scaled to one week (weekly pool ≈ monthly / 4).
+    private var xaiPoolValue: Double? {
+        guard let report = store.snapshot?.reports.first(where: { $0.provider == "xai-oauth" }),
+              let frac = SubscriptionValue.weeklyFraction(limits: report.limits.map {
+                  ($0.window?.id, $0.id, $0.amount?.usedFraction)
+              }),
+              let monthly = SubscriptionValue.valueUsd(provider: "xai-oauth", planType: report.metadata?.planType)
+        else { return nil }
+        return frac * monthly / 4
+    }
+
+    private var xaiValueText: String {
+        guard let total = xaiPoolValue else { return "\u{2014}" }
+        return "\u{2248}$\(fmt0(total))"
     }
 
     @ViewBuilder
@@ -261,6 +355,7 @@ struct ContentView: View {
         switch provider {
         case "openai-codex": return "OpenAI Codex"
         case "opencode-go": return "OpenCode Go"
+        case "openrouter": return "OpenRouter"
         case "xai-oauth": return "Xai OAuth"
         default:
             return provider.split(separator: "-").map { $0.capitalized }.joined(separator: " ")

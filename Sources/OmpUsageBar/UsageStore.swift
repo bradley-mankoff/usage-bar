@@ -13,6 +13,10 @@ final class UsageStore: ObservableObject {
     @Published var xaiNativeWeekly: Bool = false
     /// Local NerfTrack weekly API-equivalent quote (never blocks the bar).
     @Published var nerfTrack: NerfTrack.Quote?
+    /// OpenRouter pay-as-you-go credits (omp reports no usage for API keys).
+    @Published var openRouter: OpenRouter.Credits?
+    /// True when an OpenRouter key exists, even if the fetch hasn't succeeded.
+    @Published var openRouterKeyFound = false
     /// Per-model pairings against each shared subscription meter.
     @Published var modelValues: [ModelValue.Bundle] = []
     private var timer: Timer?
@@ -28,20 +32,48 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// Menu-bar label: the binding constraint (highest used fraction) across all providers.
+    /// Menu-bar label: API-equivalent dollar-weighted average of *weekly*
+    /// usage across linked subscriptions (see SubscriptionValue). Weekly is
+    /// the only window all three share, so 5h/monthly windows never skew the
+    /// label. OpenRouter $ balance appends as text only, never into the %.
+    /// No icon: the bar shows the number bare (e.g. `60% · $12.30`).
+    /// Ended subscriptions are excluded so a canceled plan pinned at 100%
+    /// can't wedge the label. Falls back to weekly max when nothing has a
+    /// known dollar value.
     var barLabel: String {
         if let snapshot {
-            let pct = Self.maxUsedPercent(snapshot) * 100
-            let text = pct < 10 ? String(format: "%.1f%%", pct) : String(format: "%.0f%%", pct)
-            return "\u{25C9} \(text)"
+            let frac = Self.weightedWeeklyPercent(snapshot) ?? Self.maxWeeklyPercent(snapshot)
+            let pct = frac * 100
+            var text = pct < 10 ? String(format: "%.1f%%", pct) : String(format: "%.0f%%", pct)
+            if let credits = openRouter, credits.totalCredits > 0 {
+                text += String(format: " · $%.2f", credits.remaining)
+            }
+            return text
         }
-        return errorMessage == nil ? "\u{25C9} \u{2026}" : "\u{25C9} ?"
+        return errorMessage == nil ? "…" : "?"
+    }
+
+    /// Dollar-weighted average of each active provider's weekly window.
+    /// Nil when no active provider has a known subscription value.
+    static func weightedWeeklyPercent(_ snapshot: UsageSnapshot) -> Double? {
+        let items: [(usedFraction: Double, valueUsd: Double)] = snapshot.reports
+            .filter { !$0.isInactive }
+            .compactMap { report in
+                guard let value = SubscriptionValue.valueUsd(
+                    provider: report.provider, planType: report.metadata?.planType
+                ) else { return nil }
+                guard let frac = SubscriptionValue.weeklyFraction(limits: report.limits.map {
+                    ($0.window?.id, $0.id, $0.amount?.usedFraction)
+                }) else { return nil }
+                return (frac, value)
+            }
+        return SubscriptionValue.weightedFraction(items)
     }
 
     func refresh() {
         Task {
             let quoteTask = Task.detached(priority: .utility) {
-                (NerfTrack.loadFromOmp(), ModelValue.loadFromOmp())
+                (NerfTrack.loadFromOmp(), ModelValue.loadFromOmp(), OpenRouter.loadFromOmp(), OpenRouter.hasKey())
             }
             do {
                 let snap = try await Task.detached(priority: .utility) {
@@ -55,47 +87,54 @@ final class UsageStore: ObservableObject {
             } catch {
                 errorMessage = error.localizedDescription
             }
-            let (quote, models) = await quoteTask.value
+            let (quote, models, credits, keyFound) = await quoteTask.value
             nerfTrack = quote
             modelValues = models
+            openRouter = credits
+            openRouterKeyFound = keyFound
             persistNerfTrack(quote)
             persistModelValues(models)
+            if let credits { persistOpenRouter(credits) }
+            #if DEBUG
+            print("[OmpUsageBar] models=\(models.count) providers=\(Set(models.map { $0.provider }).sorted())")
+            #endif
         }
     }
 
+    /// Highest weekly used fraction across active providers only (fallback
+    /// when no provider has a known dollar value). Inactive (ended)
+    /// subscriptions are excluded: they sit at 100% exhausted on a
+    /// downgraded free plan and would otherwise pin the bar.
+    static func maxWeeklyPercent(_ snapshot: UsageSnapshot) -> Double {
+        snapshot.reports.filter { !$0.isInactive }.compactMap {
+            SubscriptionValue.weeklyFraction(limits: $0.limits.map {
+                ($0.window?.id, $0.id, $0.amount?.usedFraction)
+            })
+        }.max() ?? 0
+    }
+
+    /// Highest used fraction across active providers only (legacy max-label).
+    /// Kept for reference; the bar now uses the weekly windows above.
+    /// Inactive (ended) subscriptions are excluded: they sit at 100%
+    /// exhausted on a downgraded free plan and would otherwise pin the bar.
     static func maxUsedPercent(_ snapshot: UsageSnapshot) -> Double {
-        snapshot.reports.flatMap { $0.limits }
+        snapshot.reports.filter { !$0.isInactive }.flatMap { $0.limits }
             .compactMap { $0.amount?.usedFraction }
             .max() ?? 0
     }
 
-    /// Record the xAI monthly counter, backfill from omp history once, and
-    /// compute the rolling 7-day consumption.
+    /// xAI API value is computed from token rows (see ModelValue), not from
+    /// the monthly counter, so this only tracks the legacy derived-weekly
+    /// samples path. Currently unused while xAI reports a native weekly
+    /// window; kept so the rolling-consumption helper stays exercised.
     private func updateXaiDerived(_ snap: UsageSnapshot) {
-        guard let xai = snap.reports.first(where: { $0.provider == "xai-oauth" }),
-              let monthly = xai.limits.first(where: { $0.id.contains(":included:1mo") }),
-              let used = monthly.amount?.used,
-              let limit = monthly.amount?.limit, limit > 0
-        else {
+        guard snap.reports.contains(where: { $0.provider == "xai-oauth" }) else {
             xaiWeeklyUsed = nil
             xaiNativeWeekly = false
             return
         }
-
-        xaiNativeWeekly = xai.limits.contains { $0.id.contains(":1w") || $0.window?.id == "1w" }
-
-        let now = Date()
-        samples.append(XaiSample(ts: Int64(now.timeIntervalSince1970 * 1000), used: used))
-        if !didBackfill {
-            didBackfill = true
-            let history = WeeklyUsage.backfillFromOmpHistory(monthlyLimit: limit)
-            if !history.isEmpty {
-                samples.append(contentsOf: history)
-            }
-        }
-        samples = WeeklyUsage.mergeAndPrune(samples, now: now)
-        WeeklyUsage.saveSamples(samples)
-        xaiWeeklyUsed = WeeklyUsage.consumption(samples: samples, now: now)
+        xaiNativeWeekly = true
+        xaiWeeklyUsed = nil
     }
 
     private func persist(_ snapshot: UsageSnapshot) {
@@ -163,6 +202,26 @@ final class UsageStore: ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let data = try? encoder.encode(rows) {
             try? data.write(to: dir.appendingPathComponent("model-value.json"))
+        }
+    }
+
+    private func persistOpenRouter(_ credits: OpenRouter.Credits) {
+        let fm = FileManager.default
+        let dir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("OmpUsageBar", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .secondsSince1970
+        let state = PersistedOpenRouter(
+            updatedAt: Date(),
+            totalCredits: credits.totalCredits,
+            totalUsage: credits.totalUsage,
+            remaining: credits.remaining,
+            usedFraction: credits.usedFraction
+        )
+        if let data = try? encoder.encode(state) {
+            try? data.write(to: dir.appendingPathComponent("openrouter.json"))
         }
     }
 }

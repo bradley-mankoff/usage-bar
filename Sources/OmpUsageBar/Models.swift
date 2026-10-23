@@ -7,6 +7,13 @@ import Foundation
 struct UsageSnapshot: Codable {
     let generatedAt: Int64
     let reports: [ProviderReport]
+    /// API-key providers omp reports no usage for (e.g. openrouter).
+    let accountsWithoutUsage: [AccountWithoutUsage]?
+}
+
+struct AccountWithoutUsage: Codable {
+    let provider: String
+    let type: String?
 }
 
 struct ProviderReport: Codable {
@@ -16,6 +23,10 @@ struct ProviderReport: Codable {
     let notes: [String]?
     let resetCredits: ResetCredits?
     let metadata: ReportMetadata?
+
+    /// omp marks ended/canceled subscriptions as not allowed
+    /// (e.g. a canceled Codex sub downgraded to an exhausted free plan).
+    var isInactive: Bool { metadata?.allowed == false }
 }
 
 struct ResetCredits: Codable {
@@ -28,6 +39,9 @@ struct ReportMetadata: Codable {
     let billingKind: String?
     let source: String?
     let orgName: String?
+    /// False when the subscription ended and the account can't be used.
+    let allowed: Bool?
+    let limitReached: Bool?
 }
 
 struct LimitReport: Codable {
@@ -83,4 +97,14 @@ struct PersistedModelQuote: Codable {
     let catalogIncludedMonthlyUsd: Double?
     let catalogMultiplier: Double?
     let note: String
+}
+
+/// OpenRouter pay-as-you-go credits fetched directly from OpenRouter,
+/// since omp reports API-key providers with no usage data.
+struct PersistedOpenRouter: Codable {
+    let updatedAt: Date
+    let totalCredits: Double
+    let totalUsage: Double
+    let remaining: Double
+    let usedFraction: Double?
 }

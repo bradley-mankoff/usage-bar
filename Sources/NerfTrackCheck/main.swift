@@ -135,8 +135,10 @@ expectClose(flash.catalogIncludedMonthlyUsd ?? -1, 30, "flash catalog")
 expectClose(glm.catalogIncludedMonthlyUsd ?? -1, 60, "glm catalog")
 expect(flash.deliveredUsd < 5, "flash delivered is not a full-pool extrapolation")
 
-for bundle in ModelValue.loadFromOmp() {
-    print("bundle \(bundle.provider) \(bundle.windowLabel)")
+let liveBundles = ModelValue.loadFromOmp()
+print("bundleCount=\(liveBundles.count)")
+for bundle in liveBundles {
+    print("bundle \(bundle.provider) \(bundle.windowLabel) \(bundle.windowId)")
     for item in bundle.models {
         let catalog = item.catalogIncludedMonthlyUsd.map { String(Int($0)) } ?? "-"
         print("  \(item.displayName) delivered=\(String(format: "%.2f", item.deliveredUsd)) catalog=$\(catalog) \(item.note)")

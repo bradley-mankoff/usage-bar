@@ -46,6 +46,27 @@ public enum GoCatalog {
         .init(id: "hy3", displayName: "Hy3", includedMonthlyUsd: 60, inputPerM: 0.14, outputPerM: 0.58, cachedReadPerM: 0.035, cachedWritePerM: nil),
     ]
 
+    /// xAI list rates for Grok models served through the subscription
+    /// (verified 2026-09-24 against xAI docs via felloai.com and omp's own
+    /// stored per-token costs: grok-4.5 $3/$9/cached-$0.50, grok-4.6
+    /// $2/$6/cached-$0.50). Unknown models fall back to Grok 4.6 rates.
+    public static let xaiModels: [Model] = [
+        .init(id: "grok-4.5", displayName: "Grok 4.5", includedMonthlyUsd: 0, inputPerM: 3, outputPerM: 9, cachedReadPerM: 0.50, cachedWritePerM: nil),
+        .init(id: "grok-4.6", displayName: "Grok 4.6", includedMonthlyUsd: 0, inputPerM: 2, outputPerM: 6, cachedReadPerM: 0.50, cachedWritePerM: nil),
+        .init(id: "grok-4.7", displayName: "Grok 4.7", includedMonthlyUsd: 0, inputPerM: 2, outputPerM: 6, cachedReadPerM: 0.50, cachedWritePerM: nil),
+        .init(id: "grok-4.3", displayName: "Grok 4.3", includedMonthlyUsd: 0, inputPerM: 1.25, outputPerM: 2.50, cachedReadPerM: 0.20, cachedWritePerM: nil),
+    ]
+
+    /// List-price the Grok model id, falling back to Grok 4.6 rates.
+    public static func xaiLookup(_ rawId: String) -> Model {
+        lookupIn(xaiModels, rawId) ?? xaiModels[1]
+    }
+
+    private static func lookupIn(_ list: [Model], _ rawId: String) -> Model? {
+        let id = normalize(rawId)
+        return list.first { $0.id == id }
+    }
+
     public static func lookup(_ rawId: String) -> Model? {
         let id = normalize(rawId)
         return models.first { $0.id == id }
