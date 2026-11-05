@@ -97,6 +97,9 @@ struct ContentView: View {
                         footnote: resetsIn(window.resetsAt)
                     )
                 }
+                if !sub.resetCredits.isEmpty {
+                    resetCreditsRows(sub.resetCredits)
+                }
             }
         }
     }
@@ -166,6 +169,30 @@ struct ContentView: View {
         }
     }
 
+    /// One line per banked reset, soonest expiry first; orange when it
+    /// expires within two days, so it gets used rather than lost.
+    private func resetCreditsRows(_ credits: [ResetCredit]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(credits.count == 1 ? "1 reset available" : "\(credits.count) resets available")
+                .font(.callout)
+            ForEach(Array(credits.enumerated()), id: \.offset) { _, credit in
+                Text("\(credit.title) \u{00B7} \(expiryText(credit.expiresAt))")
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundColor(
+                        (credit.expiresAt?.timeIntervalSinceNow ?? .infinity) < 2 * 86400 ? .orange : .secondary
+                    )
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private func expiryText(_ date: Date?) -> String {
+        guard let date else { return "no expiry date" }
+        let when = date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())
+        return "expires \(when) (\(timeLeft(date)))"
+    }
+
     private func placeholder(_ text: String) -> some View {
         Text(text).font(.callout).foregroundColor(.secondary)
     }
@@ -176,14 +203,19 @@ struct ContentView: View {
 
     private func resetsIn(_ date: Date?) -> String? {
         guard let date else { return nil }
+        return date.timeIntervalSinceNow <= 0 ? "resets now" : "resets \(timeLeft(date))"
+    }
+
+    /// "in 5m", "in 3h12m", "in 1d2h"; "now" once past.
+    private func timeLeft(_ date: Date) -> String {
         let secs = Int(date.timeIntervalSinceNow)
-        if secs <= 0 { return "resets now" }
-        if secs < 60 { return "resets in \(secs)s" }
+        if secs <= 0 { return "now" }
+        if secs < 60 { return "in \(secs)s" }
         let m = secs / 60
-        if m < 60 { return "resets in \(m)m" }
+        if m < 60 { return "in \(m)m" }
         let h = m / 60
-        if h < 24 { return "resets in \(h)h\(m % 60)m" }
-        return "resets in \(h / 24)d\(h % 24)h"
+        if h < 24 { return "in \(h)h\(m % 60)m" }
+        return "in \(h / 24)d\(h % 24)h"
     }
 
     private func severity(_ frac: Double?) -> Color {

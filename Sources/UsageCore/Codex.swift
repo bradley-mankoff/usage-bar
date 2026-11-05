@@ -27,6 +27,9 @@ public enum Codex {
     }
 
     static let usageURL = "https://chatgpt.com/backend-api/wham/usage"
+    /// The list the Codex CLI reads for banked resets. Only GET it: the
+    /// `/consume` path under it spends one.
+    static let resetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 
     /// Every ChatGPT login in pi's auth.json. Empty when pi has none; the
     /// caller hides the Codex section in that case.
@@ -67,8 +70,11 @@ public enum Codex {
 
     public static func fetch(seat: Seat) async throws -> SubscriptionUsage {
         if seat.isExpired { throw UsageError.reauth("Codex") }
-        var headers = ["Authorization": "Bearer \(seat.accessToken)"]
-        if !seat.accountId.isEmpty { headers["ChatGPT-Account-Id"] = seat.accountId }
+        let headers = ["Authorization": "Bearer \(seat.accessToken)"]
+            .merging(seat.accountId.isEmpty ? [:] : ["ChatGPT-Account-Id": seat.accountId]) { $1 }
+        // The usage card matters more than the resets, so a failed resets
+        // fetch shows no resets rather than an error.
+        async let resetBody = try? HTTP.get(resetCreditsURL, headers: headers, what: "Codex resets")
         let body: Data
         do {
             body = try await HTTP.get(usageURL, headers: headers, what: "Codex usage")
@@ -84,8 +90,23 @@ public enum Codex {
             plan: seat.email,
             monthlyValueUsd: 0,
             windows: windows,
-            note: note
+            note: note,
+            resetCredits: await resetBody.map(parseResetCredits) ?? []
         )
+    }
+
+    /// Shape confirmed against the live endpoint 2026-11-05: `{"credits":
+    /// [{"status": "available", "title": "Full reset (Weekly + 5 hr)",
+    /// "expires_at": "2026-11-06T23:53:33.856823Z", ...}], "available_count": 3}`.
+    /// Redeemed and expired credits stay in the list, so only available ones count.
+    public static func parseResetCredits(_ data: Data) -> [ResetCredit] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let credits = root["credits"] as? [[String: Any]]
+        else { return [] }
+        return credits
+            .filter { ($0["status"] as? String) == "available" }
+            .map { ResetCredit(title: $0["title"] as? String ?? "Reset", expiresAt: parseISODate($0["expires_at"] as? String)) }
+            .sorted { ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture) }
     }
 
     /// Shape confirmed against the live endpoint 2026-10-23 (both seats of a

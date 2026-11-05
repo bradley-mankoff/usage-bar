@@ -18,6 +18,18 @@ public struct UsageWindow: Equatable, Sendable, Identifiable {
     }
 }
 
+/// A banked reset that clears a subscription's limits when redeemed, e.g.
+/// Codex's "Full reset (Weekly + 5 hr)". Unused ones expire.
+public struct ResetCredit: Equatable, Sendable {
+    public var title: String
+    public var expiresAt: Date?
+
+    public init(title: String, expiresAt: Date?) {
+        self.title = title
+        self.expiresAt = expiresAt
+    }
+}
+
 /// A subscription's windows plus its API-equivalent monthly value, which
 /// weights it in the menu-bar percent (see SubscriptionValue).
 public struct SubscriptionUsage: Equatable, Sendable {
@@ -26,13 +38,19 @@ public struct SubscriptionUsage: Equatable, Sendable {
     public var monthlyValueUsd: Double
     public var windows: [UsageWindow]
     public var note: String?
+    /// Available resets, soonest expiry first.
+    public var resetCredits: [ResetCredit]
 
-    public init(name: String, plan: String?, monthlyValueUsd: Double, windows: [UsageWindow], note: String? = nil) {
+    public init(
+        name: String, plan: String?, monthlyValueUsd: Double, windows: [UsageWindow],
+        note: String? = nil, resetCredits: [ResetCredit] = []
+    ) {
         self.name = name
         self.plan = plan
         self.monthlyValueUsd = monthlyValueUsd
         self.windows = windows
         self.note = note
+        self.resetCredits = resetCredits
     }
 
     public var weeklyFraction: Double? {

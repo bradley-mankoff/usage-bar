@@ -96,6 +96,23 @@ final class UsageTests: XCTestCase {
         XCTAssertTrue(seats[1].isExpired)
     }
 
+    func testCodexResetCreditsKeepAvailableSoonestFirst() {
+        let json = """
+        {"credits": [
+          {"status": "available", "title": "Full reset (Weekly + 5 hr)", "expires_at": "2026-11-30T20:33:00.984143Z"},
+          {"status": "redeemed", "title": "Full reset (Weekly + 5 hr)", "expires_at": "2026-11-01T00:00:00Z"},
+          {"status": "available", "title": "Full reset (Weekly + 5 hr)", "expires_at": "2026-11-06T23:53:33.856823Z"}],
+         "available_count": 2}
+        """
+        let credits = Codex.parseResetCredits(Data(json.utf8))
+        XCTAssertEqual(credits.map(\.expiresAt), [
+            ISO8601DateFormatter().date(from: "2026-11-06T23:53:33Z"),
+            ISO8601DateFormatter().date(from: "2026-11-30T20:33:00Z"),
+        ])
+        XCTAssertEqual(credits[0].title, "Full reset (Weekly + 5 hr)")
+        XCTAssertEqual(Codex.parseResetCredits(Data(#"{"detail": "nope"}"#.utf8)), [])
+    }
+
     func testCodexRejectsForeignShape() {
         XCTAssertThrowsError(try Codex.parse(Data(#"{"usage": {}}"#.utf8)))
     }
