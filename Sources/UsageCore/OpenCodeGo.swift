@@ -1,7 +1,7 @@
 import Foundation
 
 /// OpenCode Go subscription limits, read with the API key pi stores in
-/// `~/.pi/agent/auth.json`. Same endpoint omp used.
+/// `~/.pi/agent/auth.json`. Same endpoint omp used before it was retired.
 public enum OpenCodeGo {
     static let usageURL = "https://opencode.ai/zen/go/v1/usage"
 

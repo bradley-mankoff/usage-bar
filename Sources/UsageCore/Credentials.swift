@@ -22,15 +22,20 @@ enum Credentials {
         return text.isEmpty ? nil : text
     }
 
-    /// The `key` of an api_key entry in pi's `~/.pi/agent/auth.json`.
-    static func piApiKey(provider: String) -> String? {
+    /// Every entry in pi's `~/.pi/agent/auth.json`, keyed by provider name.
+    /// pi refreshes its OAuth entries whenever it uses them; the bar only reads.
+    static func piAuth() -> [String: [String: Any]] {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".pi/agent/auth.json")
         guard let data = try? Data(contentsOf: url),
-              let auth = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let entry = auth[provider] as? [String: Any],
-              let key = entry["key"] as? String, !key.isEmpty
-        else { return nil }
+              let auth = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return auth.compactMapValues { $0 as? [String: Any] }
+    }
+
+    /// The `key` of an api_key entry in pi's auth.json.
+    static func piApiKey(provider: String) -> String? {
+        guard let key = piAuth()[provider]?["key"] as? String, !key.isEmpty else { return nil }
         return key
     }
 

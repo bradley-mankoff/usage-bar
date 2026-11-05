@@ -80,6 +80,22 @@ final class UsageTests: XCTestCase {
         XCTAssertEqual(note, "Your workspace is out of credits. Add credits to continue using Codex.")
     }
 
+    func testCodexSeatsComeFromPiCodexLogins() {
+        // Payload {"https://api.openai.com/profile": {"email": "a-seat@example.com"}}, unsigned.
+        let jwt = "e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJhLXNlYXRAZXhhbXBsZS5jb20ifX0.sig"
+        let auth: [String: [String: Any]] = [
+            "codex-seat-a": ["type": "oauth", "access": jwt, "accountId": "acct-1", "expires": 1_900_000_000_000.0],
+            "codex-seat-b": ["type": "oauth", "access": "opaque", "expires": 1_000.0],
+            "anthropic": ["type": "oauth", "access": "sk-ant", "expires": 1_900_000_000_000.0],
+            "opencode-go": ["type": "api_key", "key": "k"],
+        ]
+        let seats = Codex.seats(fromPiAuth: auth)
+        XCTAssertEqual(seats.map(\.email), ["a-seat@example.com", "codex-seat-b"])
+        XCTAssertEqual(seats[0].accountId, "acct-1")
+        XCTAssertFalse(seats[0].isExpired)
+        XCTAssertTrue(seats[1].isExpired)
+    }
+
     func testCodexRejectsForeignShape() {
         XCTAssertThrowsError(try Codex.parse(Data(#"{"usage": {}}"#.utf8)))
     }

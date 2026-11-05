@@ -1,11 +1,13 @@
 import Foundation
 
-/// Claude subscription limits, read with Claude Code's own OAuth token.
+/// Claude subscription limits, read with an OAuth token someone else keeps fresh.
 ///
-/// pi reaches Claude through the claude-bridge provider, which drives Claude
-/// Code, so the token lives in Claude Code's Keychain item
-/// ("Claude Code-credentials"). The bar only reads it; Claude Code refreshes
-/// it whenever it runs, so an expired token is reported, not refreshed.
+/// Two places hold one: pi's `anthropic` login in auth.json (pi refreshes it
+/// when it talks to Claude directly, as on the work Mac) and Claude Code's
+/// Keychain item "Claude Code-credentials" (Claude Code refreshes it when it
+/// runs, as under pi's claude-bridge on the home Mac). Whichever token is
+/// unexpired wins. The bar never refreshes either: rotating a refresh token
+/// it does not own would sign its owner out.
 public enum Claude {
     static let usageURL = "https://api.anthropic.com/api/oauth/usage"
 
@@ -19,17 +21,21 @@ public enum Claude {
     ]
 
     public static func fetch() async throws -> SubscriptionUsage {
-        guard let json = Credentials.keychain(service: "Claude Code-credentials"),
-              let data = json.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let oauth = root["claudeAiOauth"] as? [String: Any],
-              let token = oauth["accessToken"] as? String
-        else { throw UsageError.missingCredential("Claude Code is not signed in") }
-        if let expires = oauth["expiresAt"] as? Double, expires / 1000 < Date().timeIntervalSince1970 {
-            throw UsageError.missingCredential("Claude Code token expired; run Claude Code to refresh it")
+        let pi = Credentials.piAuth()["anthropic"]
+        let claudeCode = Credentials.keychain(service: "Claude Code-credentials")
+            .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            .flatMap { $0["claudeAiOauth"] as? [String: Any] }
+        let now = Date().timeIntervalSince1970 * 1000
+        let candidates: [(token: String?, expiresMs: Double?)] = [
+            (pi?["access"] as? String, (pi?["expires"] as? NSNumber)?.doubleValue),
+            (claudeCode?["accessToken"] as? String, (claudeCode?["expiresAt"] as? NSNumber)?.doubleValue),
+        ]
+        guard let token = candidates.first(where: { $0.token != nil && ($0.expiresMs ?? .infinity) > now })?.token else {
+            throw UsageError.missingCredential("no unexpired Claude token in pi or Claude Code")
         }
-        let plan = oauth["subscriptionType"] as? String
-        let tier = oauth["rateLimitTier"] as? String
+        // Only Claude Code records the plan; pi's login does not, which values it as Pro.
+        let plan = claudeCode?["subscriptionType"] as? String
+        let tier = claudeCode?["rateLimitTier"] as? String
         let body = try await HTTP.get(usageURL, headers: [
             "Authorization": "Bearer \(token)",
             "anthropic-beta": "oauth-2025-04-20",

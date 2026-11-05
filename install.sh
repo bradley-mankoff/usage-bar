@@ -40,5 +40,8 @@ cat > "$agent" <<EOF
 </dict>
 </plist>
 EOF
-launchctl bootstrap "gui/$UID" "$agent" 2>/dev/null || true
-launchctl kickstart -k "gui/$UID/$label"
+# Reload rather than kickstart: launchd pins a loaded job to the cdhash of the
+# binary it first saw, so after a rebuild a kickstart dies with "Launch
+# Constraint Violation" (macOS 27). A fresh bootstrap records the new hash.
+launchctl bootout "gui/$UID/$label" 2>/dev/null || true
+launchctl bootstrap "gui/$UID" "$agent"
