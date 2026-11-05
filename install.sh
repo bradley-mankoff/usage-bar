@@ -44,4 +44,6 @@ EOF
 # binary it first saw, so after a rebuild a kickstart dies with "Launch
 # Constraint Violation" (macOS 27). A fresh bootstrap records the new hash.
 launchctl bootout "gui/$UID/$label" 2>/dev/null || true
+# bootout returns before the job is gone; bootstrapping too early fails with error 5.
+for _ in $(seq 50); do launchctl print "gui/$UID/$label" >/dev/null 2>&1 || break; sleep 0.1; done
 launchctl bootstrap "gui/$UID" "$agent"
