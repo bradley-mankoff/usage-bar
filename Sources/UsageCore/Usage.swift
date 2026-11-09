@@ -7,14 +7,12 @@ public struct UsageWindow: Equatable, Sendable, Identifiable {
     public var label: String
     public var usedFraction: Double
     public var resetsAt: Date?
-    public var isWeekly: Bool
 
-    public init(id: String, label: String, usedFraction: Double, resetsAt: Date?, isWeekly: Bool) {
+    public init(id: String, label: String, usedFraction: Double, resetsAt: Date?) {
         self.id = id
         self.label = label
         self.usedFraction = usedFraction
         self.resetsAt = resetsAt
-        self.isWeekly = isWeekly
     }
 }
 
@@ -30,31 +28,24 @@ public struct ResetCredit: Equatable, Sendable {
     }
 }
 
-/// A subscription's windows plus its API-equivalent monthly value, which
-/// weights it in the menu-bar percent (see SubscriptionValue).
+/// A subscription's windows, plus the plan name shown on its card.
 public struct SubscriptionUsage: Equatable, Sendable {
     public var name: String
     public var plan: String?
-    public var monthlyValueUsd: Double
     public var windows: [UsageWindow]
     public var note: String?
     /// Available resets, soonest expiry first.
     public var resetCredits: [ResetCredit]
 
     public init(
-        name: String, plan: String?, monthlyValueUsd: Double, windows: [UsageWindow],
+        name: String, plan: String?, windows: [UsageWindow],
         note: String? = nil, resetCredits: [ResetCredit] = []
     ) {
         self.name = name
         self.plan = plan
-        self.monthlyValueUsd = monthlyValueUsd
         self.windows = windows
         self.note = note
         self.resetCredits = resetCredits
-    }
-
-    public var weeklyFraction: Double? {
-        windows.filter(\.isWeekly).map(\.usedFraction).max()
     }
 }
 

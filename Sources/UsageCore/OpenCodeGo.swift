@@ -5,10 +5,10 @@ import Foundation
 public enum OpenCodeGo {
     static let usageURL = "https://opencode.ai/zen/go/v1/usage"
 
-    static let windows: [(key: String, label: String, isWeekly: Bool)] = [
-        ("rolling", "5 Hour", false),
-        ("weekly", "Weekly", true),
-        ("monthly", "Monthly", false),
+    static let windows: [(key: String, label: String)] = [
+        ("rolling", "5 Hour"),
+        ("weekly", "Weekly"),
+        ("monthly", "Monthly"),
     ]
 
     public static func fetch() async throws -> SubscriptionUsage {
@@ -22,7 +22,6 @@ public enum OpenCodeGo {
         return SubscriptionUsage(
             name: "OpenCode Go",
             plan: nil,
-            monthlyValueUsd: SubscriptionValue.openCodeGoUsd,
             windows: try parse(body)
         )
     }
@@ -40,8 +39,7 @@ public enum OpenCodeGo {
                 id: spec.key,
                 label: spec.label,
                 usedFraction: percent / 100,
-                resetsAt: parseISODate(window["resetsAt"] as? String),
-                isWeekly: spec.isWeekly
+                resetsAt: parseISODate(window["resetsAt"] as? String)
             )
         }
     }

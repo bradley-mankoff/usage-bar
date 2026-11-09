@@ -13,11 +13,11 @@ public enum Claude {
 
     /// Windows shown, in display order. The API also returns many codenamed
     /// fields (promotions, experiments); those are ignored.
-    static let windows: [(key: String, label: String, isWeekly: Bool)] = [
-        ("five_hour", "5 Hour", false),
-        ("seven_day", "Weekly", true),
-        ("seven_day_opus", "Weekly Opus", true),
-        ("seven_day_sonnet", "Weekly Sonnet", true),
+    static let windows: [(key: String, label: String)] = [
+        ("five_hour", "5 Hour"),
+        ("seven_day", "Weekly"),
+        ("seven_day_opus", "Weekly Opus"),
+        ("seven_day_sonnet", "Weekly Sonnet"),
     ]
 
     public static func fetch() async throws -> SubscriptionUsage {
@@ -33,9 +33,8 @@ public enum Claude {
         guard let token = candidates.first(where: { $0.token != nil && ($0.expiresMs ?? .infinity) > now })?.token else {
             throw UsageError.missingCredential("no unexpired Claude token in pi or Claude Code")
         }
-        // Only Claude Code records the plan; pi's login does not, which values it as Pro.
+        // Only Claude Code records the plan; pi's login does not, so its card shows none.
         let plan = claudeCode?["subscriptionType"] as? String
-        let tier = claudeCode?["rateLimitTier"] as? String
         let body = try await HTTP.get(usageURL, headers: [
             "Authorization": "Bearer \(token)",
             "anthropic-beta": "oauth-2025-04-20",
@@ -43,7 +42,6 @@ public enum Claude {
         return SubscriptionUsage(
             name: "Claude",
             plan: plan.map { $0.capitalized },
-            monthlyValueUsd: SubscriptionValue.claudeUsd(plan: plan, tier: tier),
             windows: try parse(body)
         )
     }
@@ -62,8 +60,7 @@ public enum Claude {
                 id: spec.key,
                 label: spec.label,
                 usedFraction: percent / 100,
-                resetsAt: parseISODate(window["resets_at"] as? String),
-                isWeekly: spec.isWeekly
+                resetsAt: parseISODate(window["resets_at"] as? String)
             )
         }
     }

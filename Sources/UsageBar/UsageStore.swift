@@ -30,26 +30,13 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    var subscriptions: [SubscriptionUsage] {
-        [claude, openCodeGo].compactMap { try? $0?.get() }
-            + codexSeats.compactMap { try? $0.result?.get() }.filter { $0.monthlyValueUsd > 0 }
-    }
-
-    /// Dollar-weighted weekly percent across subscriptions with a known value
-    /// (see SubscriptionValue), then OpenRouter's remaining dollars, e.g.
-    /// `25% · $16.62`. OpenRouter never feeds the percent: it has no window.
-    /// Codex seats are cards only until their Business value is known.
+    /// Claude's five-hour then weekly percent (see MenuBarLabel). Other
+    /// providers appear only in the dropdown, so they cannot change it.
     var barLabel: String {
-        var parts: [String] = []
-        if let frac = SubscriptionValue.weightedWeeklyFraction(subscriptions) {
-            let pct = frac * 100
-            parts.append(pct < 10 ? String(format: "%.1f%%", pct) : String(format: "%.0f%%", pct))
-        }
-        if let credits = try? openRouter?.get(), credits.totalCredits > 0 {
-            parts.append(String(format: "$%.2f", credits.remaining))
-        }
-        if parts.isEmpty { return firstFetchDone ? "?" : "…" }
-        return parts.joined(separator: " · ")
+        MenuBarLabel.text(
+            claudeWindows: try? claude?.get().windows,
+            firstFetchDone: firstFetchDone
+        )
     }
 
     func refresh() {

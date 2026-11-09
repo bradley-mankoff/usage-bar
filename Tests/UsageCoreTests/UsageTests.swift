@@ -13,8 +13,6 @@ final class UsageTests: XCTestCase {
         let windows = try Claude.parse(Data(json.utf8))
         XCTAssertEqual(windows.map(\.id), ["five_hour", "seven_day"])
         XCTAssertEqual(windows[0].usedFraction, 0.61, accuracy: 1e-9)
-        XCTAssertFalse(windows[0].isWeekly)
-        XCTAssertTrue(windows[1].isWeekly)
         XCTAssertEqual(windows[1].resetsAt, ISO8601DateFormatter().date(from: "2026-10-27T05:59:59Z"))
     }
 
@@ -26,7 +24,6 @@ final class UsageTests: XCTestCase {
         """
         let windows = try OpenCodeGo.parse(Data(json.utf8))
         XCTAssertEqual(windows.map(\.id), ["rolling", "weekly", "monthly"])
-        XCTAssertEqual(windows.filter(\.isWeekly).map(\.id), ["weekly"])
         XCTAssertEqual(windows[2].usedFraction, 0.72, accuracy: 1e-9)
         XCTAssertNotNil(windows[1].resetsAt)
     }
@@ -38,17 +35,54 @@ final class UsageTests: XCTestCase {
         XCTAssertNil(OpenRouter.Credits(totalCredits: 0, totalUsage: 0).usedFraction)
     }
 
-    func testWeightedWeeklyFraction() {
-        let claude = SubscriptionUsage(name: "Claude", plan: "Pro", monthlyValueUsd: 150, windows: [
-            UsageWindow(id: "five_hour", label: "5 Hour", usedFraction: 0.9, resetsAt: nil, isWeekly: false),
-            UsageWindow(id: "seven_day", label: "Weekly", usedFraction: 0.28, resetsAt: nil, isWeekly: true),
-        ])
-        let go = SubscriptionUsage(name: "OpenCode Go", plan: nil, monthlyValueUsd: 60, windows: [
-            UsageWindow(id: "weekly", label: "Weekly", usedFraction: 0.04, resetsAt: nil, isWeekly: true),
-        ])
-        // (0.28 * 150 + 0.04 * 60) / 210; the 5-hour 90% must not count.
-        XCTAssertEqual(SubscriptionValue.weightedWeeklyFraction([claude, go])!, 44.4 / 210, accuracy: 1e-9)
-        XCTAssertNil(SubscriptionValue.weightedWeeklyFraction([]))
+    func testMenuBarTextShowsClaudeFiveHourThenWeeklyPercent() {
+        let text = MenuBarLabel.text(
+            claudeWindows: claudeWindows(fiveHour: 0.12, weekly: 0.40),
+            firstFetchDone: true
+        )
+        XCTAssertEqual(text, "12% \u{00B7} 40%")
+    }
+
+    func testMenuBarTextKeepsOneDecimalBelowTenPercent() {
+        let text = MenuBarLabel.text(
+            claudeWindows: claudeWindows(fiveHour: 0.045, weekly: 0.40),
+            firstFetchDone: true
+        )
+        XCTAssertEqual(text, "4.5% \u{00B7} 40%")
+    }
+
+    func testMenuBarTextShowsTheOneClaudeWindowPresent() {
+        let fiveHourOnly = MenuBarLabel.text(
+            claudeWindows: claudeWindows(fiveHour: 0.12),
+            firstFetchDone: true
+        )
+        let weeklyOnly = MenuBarLabel.text(
+            claudeWindows: claudeWindows(weekly: 0.40),
+            firstFetchDone: true
+        )
+        XCTAssertEqual(fiveHourOnly, "12%")
+        XCTAssertEqual(weeklyOnly, "40%")
+    }
+
+    func testMenuBarTextWithoutClaudeWindows() {
+        XCTAssertEqual(MenuBarLabel.text(claudeWindows: nil, firstFetchDone: false), "\u{2026}")
+        XCTAssertEqual(MenuBarLabel.text(claudeWindows: nil, firstFetchDone: true), "?")
+        XCTAssertEqual(MenuBarLabel.text(claudeWindows: [], firstFetchDone: true), "?")
+    }
+
+    private func claudeWindows(fiveHour: Double? = nil, weekly: Double? = nil) -> [UsageWindow] {
+        var windows: [UsageWindow] = []
+        if let fiveHour {
+            windows.append(UsageWindow(
+                id: "five_hour", label: "5 Hour", usedFraction: fiveHour, resetsAt: nil
+            ))
+        }
+        if let weekly {
+            windows.append(UsageWindow(
+                id: "seven_day", label: "Weekly", usedFraction: weekly, resetsAt: nil
+            ))
+        }
+        return windows
     }
 
     func testCodexParsesWhamUsage() throws {
@@ -61,9 +95,7 @@ final class UsageTests: XCTestCase {
         let (windows, note) = try Codex.parse(Data(json.utf8))
         XCTAssertEqual(windows.map(\.id), ["openai-codex:primary_window", "openai-codex:secondary_window"])
         XCTAssertEqual(windows[0].usedFraction, 0.42, accuracy: 1e-9)
-        XCTAssertFalse(windows[0].isWeekly)
         XCTAssertEqual(windows[1].usedFraction, 0.07, accuracy: 1e-9)
-        XCTAssertTrue(windows[1].isWeekly)
         XCTAssertEqual(windows[0].resetsAt, Date(timeIntervalSince1970: 1792798913))
         XCTAssertNil(note)
     }
@@ -115,11 +147,5 @@ final class UsageTests: XCTestCase {
 
     func testCodexRejectsForeignShape() {
         XCTAssertThrowsError(try Codex.parse(Data(#"{"usage": {}}"#.utf8)))
-    }
-
-    func testClaudePlanValue() {
-        XCTAssertEqual(SubscriptionValue.claudeUsd(plan: "pro", tier: "default_claude_ai"), 150)
-        XCTAssertEqual(SubscriptionValue.claudeUsd(plan: "max", tier: "default_claude_max_5x"), 750)
-        XCTAssertEqual(SubscriptionValue.claudeUsd(plan: "max", tier: "default_claude_max_20x"), 1500)
     }
 }

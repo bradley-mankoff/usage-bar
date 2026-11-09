@@ -88,7 +88,6 @@ public enum Codex {
         return SubscriptionUsage(
             name: "Codex",
             plan: seat.email,
-            monthlyValueUsd: 0,
             windows: windows,
             note: note,
             resetCredits: await resetBody.map(parseResetCredits) ?? []
@@ -118,9 +117,9 @@ public enum Codex {
         else {
             throw UsageError.badResponse("Codex usage")
         }
-        let specs: [(key: String, label: String, isWeekly: Bool)] = [
-            ("primary_window", "5 Hour", false),
-            ("secondary_window", "Weekly", true),
+        let specs: [(key: String, label: String)] = [
+            ("primary_window", "5 Hour"),
+            ("secondary_window", "Weekly"),
         ]
         let windows = specs.compactMap { spec -> UsageWindow? in
             guard let window = rate[spec.key] as? [String: Any],
@@ -134,8 +133,7 @@ public enum Codex {
                 id: "openai-codex:\(spec.key)",
                 label: spec.label,
                 usedFraction: percent / 100,
-                resetsAt: reset,
-                isWeekly: spec.isWeekly
+                resetsAt: reset
             )
         }
         var note: String?
