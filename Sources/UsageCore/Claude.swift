@@ -46,6 +46,18 @@ public enum Claude {
         )
     }
 
+    /// The result to keep after a poll. A success is the only thing that
+    /// replaces the previous result: a failed request or a missing credential
+    /// keeps the last good windows, so one bad five-minute refresh does not
+    /// replace the menu bar's percentages with ?.
+    public static func keepingLastGood(
+        _ previous: Result<SubscriptionUsage, Error>?,
+        after poll: Result<SubscriptionUsage, Error>?
+    ) -> Result<SubscriptionUsage, Error>? {
+        guard case .success = poll else { return previous }
+        return poll
+    }
+
     /// `utilization` is a percent (0-100); a window is null when the plan
     /// doesn't have it.
     public static func parse(_ data: Data) throws -> [UsageWindow] {

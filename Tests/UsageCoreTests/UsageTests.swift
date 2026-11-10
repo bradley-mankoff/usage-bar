@@ -70,6 +70,48 @@ final class UsageTests: XCTestCase {
         XCTAssertEqual(MenuBarLabel.text(claudeWindows: [], firstFetchDone: true), "?")
     }
 
+    func testAFailedClaudePollKeepsTheLastGoodTwoPercentsInTheBar() {
+        XCTAssertEqual(
+            barTextAfterAPoll(.failure(UsageError.http(500, "Claude usage"))),
+            "12% \u{00B7} 40%"
+        )
+    }
+
+    func testAMissingClaudeCredentialKeepsTheLastGoodTwoPercentsInTheBar() {
+        XCTAssertEqual(barTextAfterAPoll(nil), "12% \u{00B7} 40%")
+    }
+
+    func testBarShowsEllipsisBeforeTheFirstPollAndQuestionMarkWhenNoPollSucceeded() {
+        let beforeFirstPoll = Claude.keepingLastGood(nil, after: nil)
+        XCTAssertEqual(barText(beforeFirstPoll, firstFetchDone: false), "\u{2026}")
+
+        let firstPollFailed = Claude.keepingLastGood(
+            nil, after: .failure(UsageError.http(500, "Claude usage"))
+        )
+        XCTAssertEqual(barText(firstPollFailed), "?")
+    }
+
+    /// The bar text `UsageStore` would show for a stored Claude result.
+    private func barText(
+        _ claude: Result<SubscriptionUsage, Error>?, firstFetchDone: Bool = true
+    ) -> String {
+        MenuBarLabel.text(claudeWindows: try? claude?.get().windows, firstFetchDone: firstFetchDone)
+    }
+
+    /// The bar text after one good poll of 12% and 40%, then `poll`.
+    private func barTextAfterAPoll(_ poll: Result<SubscriptionUsage, Error>?) -> String {
+        let good = Result<SubscriptionUsage, Error>.success(
+            claudeUsage(fiveHour: 0.12, weekly: 0.40)
+        )
+        return barText(Claude.keepingLastGood(Claude.keepingLastGood(nil, after: good), after: poll))
+    }
+
+    private func claudeUsage(fiveHour: Double? = nil, weekly: Double? = nil) -> SubscriptionUsage {
+        SubscriptionUsage(
+            name: "Claude", plan: "Pro", windows: claudeWindows(fiveHour: fiveHour, weekly: weekly)
+        )
+    }
+
     private func claudeWindows(fiveHour: Double? = nil, weekly: Double? = nil) -> [UsageWindow] {
         var windows: [UsageWindow] = []
         if let fiveHour {

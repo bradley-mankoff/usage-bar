@@ -11,9 +11,10 @@ struct CodexSeatState: Identifiable {
 
 @MainActor
 final class UsageStore: ObservableObject {
-    /// Nil means hide the section: no credential on this machine (loading is
-    /// tracked separately by firstFetchDone). A present Result, ok or not,
-    /// always renders.
+    /// The last successful Claude result, or nil until the first success. A
+    /// failed poll leaves it alone (see `Claude.keepingLastGood`), so the
+    /// dropdown card and menu bar keep the last good numbers. A present
+    /// Result always renders.
     @Published var claude: Result<SubscriptionUsage, Error>?
     @Published var openCodeGo: Result<SubscriptionUsage, Error>?
     @Published var openRouter: Result<OpenRouter.Credits, Error>?
@@ -54,7 +55,10 @@ final class UsageStore: ObservableObject {
                 }
                 for await row in group { seatResults.append(row) }
             }
-            (self.claude, self.openCodeGo, self.openRouter) = await (claude, go, credits)
+            let (claudePoll, goPoll, creditsPoll) = await (claude, go, credits)
+            self.claude = Claude.keepingLastGood(self.claude, after: claudePoll)
+            self.openCodeGo = goPoll
+            self.openRouter = creditsPoll
             self.codexSeats = seatResults
                 .sorted { $0.0 < $1.0 }
                 .map { CodexSeatState(email: $0.0, result: $0.1) }
