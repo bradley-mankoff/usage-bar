@@ -2,15 +2,10 @@ import Foundation
 import SwiftUI
 import UsageCore
 
-/// One Codex seat on this machine, labeled by its login email.
-struct CodexSeatState: Identifiable {
-    var id: String { email }
-    let email: String
-    var result: Result<SubscriptionUsage, Error>?
-}
-
 @MainActor
 final class UsageStore: ObservableObject {
+    /// What the bar shows and where it reads from.
+    let config: Config
     /// The last successful Claude result, or nil until the first success. A
     /// failed poll leaves it alone (see `Claude.keepingLastGood`), so the
     /// dropdown card and menu bar keep the last good numbers. A present
@@ -18,68 +13,67 @@ final class UsageStore: ObservableObject {
     @Published var claude: Result<SubscriptionUsage, Error>?
     @Published var openCodeGo: Result<SubscriptionUsage, Error>?
     @Published var openRouter: Result<OpenRouter.Credits, Error>?
-    @Published var codexSeats: [CodexSeatState] = []
+    /// One entry per Codex seat on this machine, labeled by its login email.
+    @Published var codexSeats: [SeatPoll] = []
     @Published var firstFetchDone = false
     @Published var lastUpdated: Date?
     private var timer: Timer?
-    private let refreshInterval: TimeInterval = 300
 
-    init() {
+    init(config: Config = Config.load()) {
+        self.config = config
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(
+            withTimeInterval: TimeInterval(config.refreshSeconds), repeats: true
+        ) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
     }
 
-    /// Claude's five-hour then weekly percent (see MenuBarLabel). Other
-    /// providers appear only in the dropdown, so they cannot change it.
+    /// The dropdown's cards, in config order, then the config's links.
+    var cards: [Card] {
+        config.cards(codexSeats: codexSeats.map(\.email))
+    }
+
+    /// The configured provider's windows come from that provider's result, so
+    /// no other provider can change the text.
     var barLabel: String {
         MenuBarLabel.text(
-            claudeWindows: try? claude?.get().windows,
+            provider: config.menuBar,
+            windows: menuBarWindows,
             firstFetchDone: firstFetchDone
         )
     }
 
-    func refresh() {
-        Task {
-            async let claude = Self.capture { try await Claude.fetch() }
-            async let go = Self.capture { try await OpenCodeGo.fetch() }
-            async let credits = Self.capture { try await OpenRouter.fetch() }
-            let seats = await Task.detached(priority: .utility) { Codex.loadSeats() }.value
-            var seatResults: [(String, Result<SubscriptionUsage, Error>?)] = []
-            await withTaskGroup(of: (String, Result<SubscriptionUsage, Error>?).self) { group in
-                for seat in seats {
-                    group.addTask {
-                        await (seat.email, Self.capture { try await Codex.fetch(seat: seat) })
-                    }
-                }
-                for await row in group { seatResults.append(row) }
+    private var menuBarWindows: [UsageWindow]? {
+        switch config.menuBar {
+        case .claude:
+            guard case .success(let usage)? = claude else { return nil }
+            return usage.windows
+        case .openCodeGo:
+            guard case .success(let usage)? = openCodeGo else { return nil }
+            return usage.windows
+        case .codex:
+            guard let result = codexSeats.first?.result, case .success(let usage) = result else {
+                return nil
             }
-            let (claudePoll, goPoll, creditsPoll) = await (claude, go, credits)
-            self.claude = Claude.keepingLastGood(self.claude, after: claudePoll)
-            self.openCodeGo = goPoll
-            self.openRouter = creditsPoll
-            self.codexSeats = seatResults
-                .sorted { $0.0 < $1.0 }
-                .map { CodexSeatState(email: $0.0, result: $0.1) }
-            lastUpdated = Date()
-            firstFetchDone = true
+            return usage.windows
+        case .openRouter:
+            guard case .success(let credits)? = openRouter, let window = credits.window else {
+                return nil
+            }
+            return [window]
         }
     }
 
-    /// Not authed (no credential, expired sign-in, rejected token) hides
-    /// the section; any other failure renders. So a dead seat vanishes
-    /// instead of showing an error card.
-    nonisolated private static func capture<T>(_ body: @Sendable () async throws -> T) async -> Result<T, Error>? {
-        do { return .success(try await body()) } catch {
-            if let usage = error as? UsageError {
-                switch usage {
-                case .missingCredential, .reauth: return nil
-                case .http(let status, _) where status == 401 || status == 403: return nil
-                default: break
-                }
-            }
-            return .failure(error)
+    func refresh() {
+        Task {
+            let poll = await Refresh.poll(config: config)
+            self.claude = Claude.keepingLastGood(self.claude, after: poll.claude)
+            self.openCodeGo = poll.openCodeGo
+            self.openRouter = poll.openRouter
+            self.codexSeats = poll.codexSeats
+            lastUpdated = Date()
+            firstFetchDone = true
         }
     }
 }

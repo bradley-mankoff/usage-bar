@@ -1,17 +1,15 @@
 import Foundation
 
-/// The text in the menu bar: Claude's five-hour usage percent, then its overall
-/// weekly (`seven_day`) percent, e.g. `12% · 40%`. Both windows come from the
-/// same Claude result, so no other provider can change the text.
+/// The text in the menu bar: the configured provider's first two windows, in
+/// display order, e.g. Claude's five-hour and weekly as `12% · 40%`. Both
+/// windows come from the same provider's result, so no other provider can
+/// change the text.
 public enum MenuBarLabel {
-    /// The two Claude windows the bar shows, in display order. The ids must
-    /// match `Claude.windows`; `seven_day` is the overall weekly window, and
-    /// the per-model weekly windows stay in the dropdown.
-    static let shownWindowIDs = ["five_hour", "seven_day"]
-
-    public static func text(claudeWindows: [UsageWindow]?, firstFetchDone: Bool) -> String {
-        let windows = claudeWindows ?? []
-        let parts = shownWindowIDs.compactMap { id in
+    public static func text(
+        provider: Config.Provider, windows: [UsageWindow]?, firstFetchDone: Bool
+    ) -> String {
+        let windows = windows ?? []
+        let parts = provider.menuBarWindowIDs.compactMap { id in
             windows.first { $0.id == id }.map { percent($0.usedFraction) }
         }
         guard !parts.isEmpty else { return firstFetchDone ? "?" : "\u{2026}" }

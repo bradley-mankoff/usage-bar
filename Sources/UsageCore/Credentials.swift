@@ -1,12 +1,50 @@
 import Foundation
 
-/// Reads API keys and tokens from where pi and Claude Code already keep them.
-/// Keys are never logged or written anywhere by the bar.
-enum Credentials {
-    /// A generic-password item from the login Keychain. Runs
-    /// `/usr/bin/security` rather than calling SecItemCopyMatching: the
-    /// Keychain allows the system `security` tool silently, while a freshly
-    /// rebuilt, ad-hoc-signed app would get a permission prompt on every build.
+/// Where the bar reads credentials: a pi auth.json, the login Keychain and the
+/// process environment. It reads only; keys and tokens are never logged,
+/// refreshed or written anywhere by the bar.
+///
+/// The Keychain goes through `/usr/bin/security` rather than
+/// `SecItemCopyMatching`: the Keychain allows the system `security` tool
+/// silently, while a freshly rebuilt, ad-hoc-signed app would get a permission
+/// prompt on every build.
+struct Credentials: @unchecked Sendable {
+    /// Every entry in the configured pi auth.json, keyed by provider name.
+    let piAuth: [String: [String: Any]]
+    private let readKeychain: (String) -> String?
+    private let readEnv: (String) -> String?
+
+    init(
+        piAuth: [String: [String: Any]],
+        keychain: @escaping (String) -> String?,
+        env: @escaping (String) -> String?
+    ) {
+        self.piAuth = piAuth
+        self.readKeychain = keychain
+        self.readEnv = env
+    }
+
+    /// This Mac's credentials, from the config's pi auth file, the login
+    /// Keychain and the environment. A test stands in for the Keychain and the
+    /// environment so it can see which reads happen.
+    static func live(
+        config: Config,
+        keychain: @escaping (String) -> String? = Credentials.keychain,
+        env: @escaping (String) -> String? = { ProcessInfo.processInfo.environment[$0] }
+    ) -> Credentials {
+        Credentials(piAuth: piAuth(at: config.piAuthFile), keychain: keychain, env: env)
+    }
+
+    /// Every entry in a pi auth.json. pi refreshes its OAuth entries whenever
+    /// it uses them; the bar only reads.
+    static func piAuth(at url: URL) -> [String: [String: Any]] {
+        guard let data = try? Data(contentsOf: url),
+              let auth = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return auth.compactMapValues { $0 as? [String: Any] }
+    }
+
+    /// A generic-password item from the login Keychain.
     static func keychain(service: String) -> String? {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/security")
@@ -22,25 +60,16 @@ enum Credentials {
         return text.isEmpty ? nil : text
     }
 
-    /// Every entry in pi's `~/.pi/agent/auth.json`, keyed by provider name.
-    /// pi refreshes its OAuth entries whenever it uses them; the bar only reads.
-    static func piAuth() -> [String: [String: Any]] {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".pi/agent/auth.json")
-        guard let data = try? Data(contentsOf: url),
-              let auth = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return [:] }
-        return auth.compactMapValues { $0 as? [String: Any] }
+    func keychain(service: String) -> String? { readKeychain(service) }
+
+    func env(_ name: String) -> String? {
+        guard let value = readEnv(name), !value.isEmpty else { return nil }
+        return value
     }
 
     /// The `key` of an api_key entry in pi's auth.json.
-    static func piApiKey(provider: String) -> String? {
-        guard let key = piAuth()[provider]?["key"] as? String, !key.isEmpty else { return nil }
+    func piApiKey(provider: String) -> String? {
+        guard let key = piAuth[provider]?["key"] as? String, !key.isEmpty else { return nil }
         return key
-    }
-
-    static func env(_ name: String) -> String? {
-        let value = ProcessInfo.processInfo.environment[name]
-        return value?.isEmpty == false ? value : nil
     }
 }

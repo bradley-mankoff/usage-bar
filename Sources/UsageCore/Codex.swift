@@ -2,7 +2,7 @@ import Foundation
 
 /// ChatGPT subscription seats (Plus, Business, ...), one card per login.
 ///
-/// Credentials come from pi's auth.json: the built-in `openai-codex` login
+/// Credentials come from the configured pi auth.json: the built-in `openai-codex` login
 /// and any `codex-<name>` login that the chatgpt-seats extension adds, one
 /// per seat of a shared workspace. Usage comes from ChatGPT's backend usage
 /// endpoint with that login's access token. The bar never refreshes a token:
@@ -31,10 +31,23 @@ public enum Codex {
     /// `/consume` path under it spends one.
     static let resetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 
+    /// The two windows Codex reports, in display order.
+    static let windows: [(key: String, label: String)] = [
+        ("primary_window", "5 Hour"),
+        ("secondary_window", "Weekly"),
+    ]
+
+    /// The two windows the menu bar shows, named as `parse` emits them.
+    static let menuBarWindowIDs = windows.prefix(2).map { windowID(for: $0.key) }
+
+    /// The id of one window. Every seat reports the same two windows, so the
+    /// id carries no seat and the menu bar can read it without knowing one.
+    static func windowID(for key: String) -> String { "openai-codex:\(key)" }
+
     /// Every ChatGPT login in pi's auth.json. Empty when pi has none; the
     /// caller hides the Codex section in that case.
-    public static func loadSeats() -> [Seat] {
-        seats(fromPiAuth: Credentials.piAuth())
+    static func loadSeats(from credentials: Credentials) -> [Seat] {
+        seats(fromPiAuth: credentials.piAuth)
     }
 
     static func seats(fromPiAuth auth: [String: [String: Any]]) -> [Seat] {
@@ -117,11 +130,7 @@ public enum Codex {
         else {
             throw UsageError.badResponse("Codex usage")
         }
-        let specs: [(key: String, label: String)] = [
-            ("primary_window", "5 Hour"),
-            ("secondary_window", "Weekly"),
-        ]
-        let windows = specs.compactMap { spec -> UsageWindow? in
+        let windows = Self.windows.compactMap { spec -> UsageWindow? in
             guard let window = rate[spec.key] as? [String: Any],
                   let percent = (window["used_percent"] as? NSNumber)?.doubleValue
             else { return nil }
@@ -130,7 +139,7 @@ public enum Codex {
                 reset = Date(timeIntervalSince1970: epoch > 1e11 ? epoch / 1000 : epoch)
             }
             return UsageWindow(
-                id: "openai-codex:\(spec.key)",
+                id: windowID(for: spec.key),
                 label: spec.label,
                 usedFraction: percent / 100,
                 resetsAt: reset
