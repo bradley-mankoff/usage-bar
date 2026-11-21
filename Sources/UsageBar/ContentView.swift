@@ -9,13 +9,24 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    subscriptionSection("Claude", store.claude)
-                    subscriptionSection("OpenCode Go", store.openCodeGo)
-                    ForEach(store.codexSeats) { seat in
-                        subscriptionSection("Codex", seat.result, subtitle: seat.email)
+                    ForEach(store.cards) { card in
+                        switch card {
+                        case .claude:
+                            subscriptionSection(Config.Provider.claude.title, store.claude)
+                        case .openCodeGo:
+                            subscriptionSection(Config.Provider.openCodeGo.title, store.openCodeGo)
+                        case .codexSeat(let email):
+                            subscriptionSection(
+                                Config.Provider.codex.title,
+                                store.codexSeats.first { $0.email == email }?.result,
+                                subtitle: email
+                            )
+                        case .openRouter:
+                            openRouterSection
+                        case .link(let link):
+                            linkSection(link)
+                        }
                     }
-                    openRouterSection
-                    jevSection
                 }
                 .padding(12)
             }
@@ -125,17 +136,14 @@ struct ContentView: View {
         }
     }
 
-    /// TypeSafe's API has no balance endpoint (only /v1/models and
-    /// /v1/systemone, checked 2026-10-23), so this links to the console.
-    private var jevSection: some View {
-        card("Jev", "credits") {
-            HStack(alignment: .firstTextBaseline) {
-                Text("TypeSafe has no balance API.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+    /// A config link is a card with one button; everything it does is open
+    /// the URL in the browser.
+    private func linkSection(_ link: Config.Link) -> some View {
+        card(link.title, nil) {
+            HStack {
                 Spacer()
-                Button("Open console") {
-                    NSWorkspace.shared.open(URL(string: "https://console.typesafe.ai/usage")!)
+                Button("Open") {
+                    NSWorkspace.shared.open(link.url)
                 }
                 .font(.caption)
             }

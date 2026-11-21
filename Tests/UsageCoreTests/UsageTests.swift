@@ -35,9 +35,22 @@ final class UsageTests: XCTestCase {
         XCTAssertNil(OpenRouter.Credits(totalCredits: 0, totalUsage: 0).usedFraction)
     }
 
+    func testMenuBarShowsTheConfiguredProvidersFirstTwoWindows() {
+        let text = MenuBarLabel.text(
+            provider: .openCodeGo,
+            windows: [
+                UsageWindow(id: "rolling", label: "5 Hour", usedFraction: 0.12, resetsAt: nil),
+                UsageWindow(id: "weekly", label: "Weekly", usedFraction: 0.40, resetsAt: nil),
+                UsageWindow(id: "monthly", label: "Monthly", usedFraction: 0.72, resetsAt: nil),
+            ],
+            firstFetchDone: true
+        )
+        XCTAssertEqual(text, "12% \u{00B7} 40%")
+    }
+
     func testMenuBarTextShowsClaudeFiveHourThenWeeklyPercent() {
         let text = MenuBarLabel.text(
-            claudeWindows: claudeWindows(fiveHour: 0.12, weekly: 0.40),
+            provider: .claude, windows: claudeWindows(fiveHour: 0.12, weekly: 0.40),
             firstFetchDone: true
         )
         XCTAssertEqual(text, "12% \u{00B7} 40%")
@@ -45,7 +58,7 @@ final class UsageTests: XCTestCase {
 
     func testMenuBarTextKeepsOneDecimalBelowTenPercent() {
         let text = MenuBarLabel.text(
-            claudeWindows: claudeWindows(fiveHour: 0.045, weekly: 0.40),
+            provider: .claude, windows: claudeWindows(fiveHour: 0.045, weekly: 0.40),
             firstFetchDone: true
         )
         XCTAssertEqual(text, "4.5% \u{00B7} 40%")
@@ -53,11 +66,11 @@ final class UsageTests: XCTestCase {
 
     func testMenuBarTextShowsTheOneClaudeWindowPresent() {
         let fiveHourOnly = MenuBarLabel.text(
-            claudeWindows: claudeWindows(fiveHour: 0.12),
+            provider: .claude, windows: claudeWindows(fiveHour: 0.12),
             firstFetchDone: true
         )
         let weeklyOnly = MenuBarLabel.text(
-            claudeWindows: claudeWindows(weekly: 0.40),
+            provider: .claude, windows: claudeWindows(weekly: 0.40),
             firstFetchDone: true
         )
         XCTAssertEqual(fiveHourOnly, "12%")
@@ -65,9 +78,9 @@ final class UsageTests: XCTestCase {
     }
 
     func testMenuBarTextWithoutClaudeWindows() {
-        XCTAssertEqual(MenuBarLabel.text(claudeWindows: nil, firstFetchDone: false), "\u{2026}")
-        XCTAssertEqual(MenuBarLabel.text(claudeWindows: nil, firstFetchDone: true), "?")
-        XCTAssertEqual(MenuBarLabel.text(claudeWindows: [], firstFetchDone: true), "?")
+        XCTAssertEqual(MenuBarLabel.text(provider: .claude, windows: nil, firstFetchDone: false), "\u{2026}")
+        XCTAssertEqual(MenuBarLabel.text(provider: .claude, windows: nil, firstFetchDone: true), "?")
+        XCTAssertEqual(MenuBarLabel.text(provider: .claude, windows: [], firstFetchDone: true), "?")
     }
 
     func testAFailedClaudePollKeepsTheLastGoodTwoPercentsInTheBar() {
@@ -95,7 +108,7 @@ final class UsageTests: XCTestCase {
     private func barText(
         _ claude: Result<SubscriptionUsage, Error>?, firstFetchDone: Bool = true
     ) -> String {
-        MenuBarLabel.text(claudeWindows: try? claude?.get().windows, firstFetchDone: firstFetchDone)
+        MenuBarLabel.text(provider: .claude, windows: try? claude?.get().windows, firstFetchDone: firstFetchDone)
     }
 
     /// The bar text after one good poll of 12% and 40%, then `poll`.

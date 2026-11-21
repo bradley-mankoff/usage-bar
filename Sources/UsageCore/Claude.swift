@@ -20,9 +20,9 @@ public enum Claude {
         ("seven_day_sonnet", "Weekly Sonnet"),
     ]
 
-    public static func fetch() async throws -> SubscriptionUsage {
-        let pi = Credentials.piAuth()["anthropic"]
-        let claudeCode = Credentials.keychain(service: "Claude Code-credentials")
+    static func fetch(credentials: Credentials) async throws -> SubscriptionUsage {
+        let pi = credentials.piAuth["anthropic"]
+        let claudeCode = credentials.keychain(service: "Claude Code-credentials")
             .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
             .flatMap { $0["claudeAiOauth"] as? [String: Any] }
         let now = Date().timeIntervalSince1970 * 1000

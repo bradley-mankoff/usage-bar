@@ -1,7 +1,7 @@
 import Foundation
 
-/// OpenCode Go subscription limits, read with the API key pi stores in
-/// `~/.pi/agent/auth.json`. Same endpoint omp used before it was retired.
+/// OpenCode Go subscription limits, read with the API key pi stores in the
+/// configured auth.json. Same endpoint omp used before it was retired.
 public enum OpenCodeGo {
     static let usageURL = "https://opencode.ai/zen/go/v1/usage"
 
@@ -11,8 +11,8 @@ public enum OpenCodeGo {
         ("monthly", "Monthly"),
     ]
 
-    public static func fetch() async throws -> SubscriptionUsage {
-        guard let key = Credentials.piApiKey(provider: "opencode-go") else {
+    static func fetch(credentials: Credentials) async throws -> SubscriptionUsage {
+        guard let key = credentials.piApiKey(provider: "opencode-go") else {
             throw UsageError.missingCredential("no opencode-go key in pi's auth.json")
         }
         let body = try await HTTP.get(usageURL, headers: [

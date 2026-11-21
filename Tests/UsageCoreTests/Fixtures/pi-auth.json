@@ -1,0 +1,12 @@
+{
+  "openai-codex": {
+    "type": "oauth",
+    "access": "e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJhLXNlYXRAZXhhbXBsZS5jb20ifX0.sig",
+    "accountId": "acct-fixture",
+    "expires": 1900000000000
+  },
+  "openrouter": {
+    "type": "api_key",
+    "key": "sk-or-fixture"
+  }
+}

@@ -11,6 +11,9 @@ let package = Package(
     targets: [
         .target(name: "UsageCore", path: "Sources/UsageCore"),
         .executableTarget(name: "UsageBar", dependencies: ["UsageCore"], path: "Sources/UsageBar"),
-        .testTarget(name: "UsageCoreTests", dependencies: ["UsageCore"], path: "Tests/UsageCoreTests"),
+        .testTarget(
+            name: "UsageCoreTests", dependencies: ["UsageCore"],
+            path: "Tests/UsageCoreTests", exclude: ["Fixtures"]
+        ),
     ]
 )

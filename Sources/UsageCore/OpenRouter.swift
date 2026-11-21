@@ -2,6 +2,9 @@ import Foundation
 
 /// OpenRouter pay-as-you-go credits, in dollars.
 public enum OpenRouter {
+    /// The menu bar treats the credit balance as this one window.
+    public static let balanceWindowID = "balance"
+
     public struct Credits: Equatable, Sendable {
         public let totalCredits: Double
         public let totalUsage: Double
@@ -17,10 +20,20 @@ public enum OpenRouter {
             guard totalCredits > 0 else { return nil }
             return min(max(totalUsage / totalCredits, 0), 1)
         }
+
+        /// The balance as one window, so the menu bar can show a percentage
+        /// when OpenRouter is the configured `menuBar` provider.
+        public var window: UsageWindow? {
+            guard let usedFraction else { return nil }
+            return UsageWindow(
+                id: OpenRouter.balanceWindowID, label: "Balance",
+                usedFraction: usedFraction, resetsAt: nil
+            )
+        }
     }
 
-    public static func fetch() async throws -> Credits {
-        guard let key = apiKey() else {
+    static func fetch(credentials: Credentials) async throws -> Credits {
+        guard let key = apiKey(from: credentials) else {
             throw UsageError.missingCredential("no OpenRouter key (OPENROUTER_API_KEY or pi's auth.json)")
         }
         let body = try await HTTP.get("https://openrouter.ai/api/v1/credits", headers: [
@@ -39,8 +52,9 @@ public enum OpenRouter {
         return Credits(totalCredits: total, totalUsage: used)
     }
 
-    /// `OPENROUTER_API_KEY`, then the `openrouter` entry in pi's auth.json.
-    static func apiKey() -> String? {
-        Credentials.env("OPENROUTER_API_KEY") ?? Credentials.piApiKey(provider: "openrouter")
+    /// `OPENROUTER_API_KEY`, then the `openrouter` entry in the configured pi
+    /// auth.json.
+    static func apiKey(from credentials: Credentials) -> String? {
+        credentials.env("OPENROUTER_API_KEY") ?? credentials.piApiKey(provider: "openrouter")
     }
 }

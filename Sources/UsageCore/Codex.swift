@@ -2,7 +2,7 @@ import Foundation
 
 /// ChatGPT subscription seats (Plus, Business, ...), one card per login.
 ///
-/// Credentials come from pi's auth.json: the built-in `openai-codex` login
+/// Credentials come from the configured pi auth.json: the built-in `openai-codex` login
 /// and any `codex-<name>` login that the chatgpt-seats extension adds, one
 /// per seat of a shared workspace. Usage comes from ChatGPT's backend usage
 /// endpoint with that login's access token. The bar never refreshes a token:
@@ -33,8 +33,8 @@ public enum Codex {
 
     /// Every ChatGPT login in pi's auth.json. Empty when pi has none; the
     /// caller hides the Codex section in that case.
-    public static func loadSeats() -> [Seat] {
-        seats(fromPiAuth: Credentials.piAuth())
+    static func loadSeats(from credentials: Credentials) -> [Seat] {
+        seats(fromPiAuth: credentials.piAuth)
     }
 
     static func seats(fromPiAuth auth: [String: [String: Any]]) -> [Seat] {
