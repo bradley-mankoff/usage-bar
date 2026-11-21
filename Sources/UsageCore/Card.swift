@@ -9,12 +9,14 @@ public enum Card: Equatable, Sendable, Identifiable {
     case openRouter
     case link(Config.Link)
 
+    /// A stable identity for `ForEach`; each configured card appears once, so
+    /// a provider's id is the name the config file uses for it.
     public var id: String {
         switch self {
-        case .claude: return "claude"
+        case .claude: return Config.Provider.claude.rawValue
         case .openCodeGo: return Config.Provider.openCodeGo.rawValue
-        case .codexSeat(let email): return "codex:\(email)"
-        case .openRouter: return "openrouter"
+        case .codexSeat(let email): return "\(Config.Provider.codex.rawValue):\(email)"
+        case .openRouter: return Config.Provider.openRouter.rawValue
         case .link(let link): return "link:\(link.title):\(link.url.absoluteString)"
         }
     }

@@ -120,12 +120,12 @@ struct ContentView: View {
         switch store.openRouter {
         case nil:
             if !store.firstFetchDone {
-                card("OpenRouter", "credits") { placeholder("Fetching\u{2026}") }
+                card(Config.Provider.openRouter.title, "credits") { placeholder("Fetching\u{2026}") }
             }
         case .failure(let error):
-            card("OpenRouter", "credits") { errorText(error) }
+            card(Config.Provider.openRouter.title, "credits") { errorText(error) }
         case .success(let credits):
-            card("OpenRouter", "credits") {
+            card(Config.Provider.openRouter.title, "credits") {
                 meterRow(
                     "Balance",
                     detail: "$\(fmt2(credits.remaining)) left of $\(fmt2(credits.totalCredits))",

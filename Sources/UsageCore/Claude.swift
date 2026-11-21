@@ -20,6 +20,10 @@ public enum Claude {
         ("seven_day_sonnet", "Weekly Sonnet"),
     ]
 
+    /// The two windows the menu bar shows, in display order: the five-hour then
+    /// the overall weekly. The per-model weekly windows stay in the dropdown.
+    static let menuBarWindowIDs = windows.prefix(2).map(\.key)
+
     static func fetch(credentials: Credentials) async throws -> SubscriptionUsage {
         let pi = credentials.piAuth["anthropic"]
         let claudeCode = credentials.keychain(service: "Claude Code-credentials")

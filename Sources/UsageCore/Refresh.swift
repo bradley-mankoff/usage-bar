@@ -1,15 +1,9 @@
 import Foundation
 
-/// One Codex seat's result in a poll.
-public struct SeatPoll: Sendable, Identifiable {
-    public var id: String { email }
+/// One Codex seat's result in a poll, labeled by its login email.
+public struct SeatPoll: Sendable {
     public var email: String
     public var result: Result<SubscriptionUsage, Error>?
-
-    public init(email: String, result: Result<SubscriptionUsage, Error>?) {
-        self.email = email
-        self.result = result
-    }
 }
 
 /// The results of one poll: one entry per card the bar can draw. A provider the
@@ -19,18 +13,6 @@ public struct Poll: Sendable {
     public var openCodeGo: Result<SubscriptionUsage, Error>?
     public var openRouter: Result<OpenRouter.Credits, Error>?
     public var codexSeats: [SeatPoll]
-
-    public init(
-        claude: Result<SubscriptionUsage, Error>? = nil,
-        openCodeGo: Result<SubscriptionUsage, Error>? = nil,
-        openRouter: Result<OpenRouter.Credits, Error>? = nil,
-        codexSeats: [SeatPoll] = []
-    ) {
-        self.claude = claude
-        self.openCodeGo = openCodeGo
-        self.openRouter = openRouter
-        self.codexSeats = codexSeats
-    }
 }
 
 /// Polls the providers the config lists, reading only their credentials.
@@ -88,7 +70,7 @@ public enum Refresh {
     /// Not authed (no credential, expired sign-in, rejected token) hides the
     /// card; any other failure renders. So a dead seat vanishes instead of
     /// showing an error card.
-    nonisolated private static func capture<T>(
+    private static func capture<T>(
         _ body: @Sendable () async throws -> T
     ) async -> Result<T, Error>? {
         do { return .success(try await body()) } catch {

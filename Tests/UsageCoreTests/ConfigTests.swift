@@ -4,21 +4,41 @@ import Foundation
 
 /// Every test here loads a config the way the app does: from a JSON file.
 final class ConfigTests: XCTestCase {
-    func testNoConfigFileMeansEveryProviderAndClaudeInTheBar() {
-        let missing = FileManager.default.temporaryDirectory
-            .appendingPathComponent("usage-bar-\(UUID().uuidString).json")
-
-        let config = Config.load(from: missing)
+    func testWithNoConfigFileEveryProviderIsPolledInItsUsualOrder() {
+        let config = Config.load(from: missingConfigFile())
 
         XCTAssertEqual(config.providers, [.claude, .openCodeGo, .codex, .openRouter])
+    }
+
+    func testWithNoConfigFileTheBarLabelsItselfWithClaude() {
+        let config = Config.load(from: missingConfigFile())
+
         XCTAssertEqual(config.menuBar, .claude)
-        XCTAssertEqual(
-            config.piAuthFile.path,
-            URL(fileURLWithPath: NSHomeDirectory())
-                .appendingPathComponent(".pi/agent/auth.json").path
-        )
+    }
+
+    func testWithNoConfigFileTheBarReadsPisAuthFile() {
+        let config = Config.load(from: missingConfigFile())
+
+        XCTAssertEqual(config.piAuthFile.path, NSHomeDirectory() + "/.pi/agent/auth.json")
+    }
+
+    func testWithNoConfigFileTheBarRefreshesEveryFiveMinutes() {
+        let config = Config.load(from: missingConfigFile())
+
         XCTAssertEqual(config.refreshSeconds, 300)
+    }
+
+    func testWithNoConfigFileTheBarShowsNoLink() {
+        let config = Config.load(from: missingConfigFile())
+
         XCTAssertEqual(config.links, [])
+    }
+
+    /// A path under the temporary directory that nothing is written to, so
+    /// `Config.load` sees the no-file case.
+    private func missingConfigFile() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("usage-bar-\(UUID().uuidString).json")
     }
 
     func testProvidersComeFromTheConfigInItsOrder() throws {

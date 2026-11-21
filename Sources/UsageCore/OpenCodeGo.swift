@@ -11,6 +11,10 @@ public enum OpenCodeGo {
         ("monthly", "Monthly"),
     ]
 
+    /// The two windows the menu bar shows, in display order: the rolling then
+    /// the weekly. The monthly window stays in the dropdown.
+    static let menuBarWindowIDs = windows.prefix(2).map(\.key)
+
     static func fetch(credentials: Credentials) async throws -> SubscriptionUsage {
         guard let key = credentials.piApiKey(provider: "opencode-go") else {
             throw UsageError.missingCredential("no opencode-go key in pi's auth.json")

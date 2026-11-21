@@ -15,9 +15,9 @@ struct Credentials: @unchecked Sendable {
     private let readEnv: (String) -> String?
 
     init(
-        piAuth: [String: [String: Any]] = [:],
-        keychain: @escaping (String) -> String? = { _ in nil },
-        env: @escaping (String) -> String? = { _ in nil }
+        piAuth: [String: [String: Any]],
+        keychain: @escaping (String) -> String?,
+        env: @escaping (String) -> String?
     ) {
         self.piAuth = piAuth
         self.readKeychain = keychain
@@ -25,21 +25,12 @@ struct Credentials: @unchecked Sendable {
     }
 
     /// This Mac's credentials, from the config's pi auth file, the login
-    /// Keychain and the environment.
-    static func live(config: Config) -> Credentials {
-        Credentials(
-            piAuth: piAuth(at: config.piAuthFile),
-            keychain: keychain,
-            env: { ProcessInfo.processInfo.environment[$0] }
-        )
-    }
-
-    /// The same, with the Keychain and environment stood in for so a test can
-    /// see which reads happen.
+    /// Keychain and the environment. A test stands in for the Keychain and the
+    /// environment so it can see which reads happen.
     static func live(
         config: Config,
-        keychain: @escaping (String) -> String?,
-        env: @escaping (String) -> String?
+        keychain: @escaping (String) -> String? = Credentials.keychain,
+        env: @escaping (String) -> String? = { ProcessInfo.processInfo.environment[$0] }
     ) -> Credentials {
         Credentials(piAuth: piAuth(at: config.piAuthFile), keychain: keychain, env: env)
     }

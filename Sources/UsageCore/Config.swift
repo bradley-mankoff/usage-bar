@@ -24,12 +24,13 @@ public struct Config: Equatable, Sendable {
         }
 
         /// The windows `MenuBarLabel` makes the bar text from, in display
-        /// order. The ids must match the ones the provider's parser emits.
+        /// order. Each provider names its own, next to the parser that emits
+        /// them, so a renamed window cannot drift from the bar text.
         public var menuBarWindowIDs: [String] {
             switch self {
-            case .claude: return ["five_hour", "seven_day"]
-            case .openCodeGo: return ["rolling", "weekly"]
-            case .codex: return ["openai-codex:primary_window", "openai-codex:secondary_window"]
+            case .claude: return Claude.menuBarWindowIDs
+            case .openCodeGo: return OpenCodeGo.menuBarWindowIDs
+            case .codex: return Codex.menuBarWindowIDs
             case .openRouter: return [OpenRouter.balanceWindowID]
             }
         }

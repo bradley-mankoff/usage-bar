@@ -2,13 +2,6 @@ import Foundation
 import SwiftUI
 import UsageCore
 
-/// One Codex seat on this machine, labeled by its login email.
-struct CodexSeatState: Identifiable {
-    var id: String { email }
-    let email: String
-    var result: Result<SubscriptionUsage, Error>?
-}
-
 @MainActor
 final class UsageStore: ObservableObject {
     /// What the bar shows and where it reads from.
@@ -20,7 +13,8 @@ final class UsageStore: ObservableObject {
     @Published var claude: Result<SubscriptionUsage, Error>?
     @Published var openCodeGo: Result<SubscriptionUsage, Error>?
     @Published var openRouter: Result<OpenRouter.Credits, Error>?
-    @Published var codexSeats: [CodexSeatState] = []
+    /// One entry per Codex seat on this machine, labeled by its login email.
+    @Published var codexSeats: [SeatPoll] = []
     @Published var firstFetchDone = false
     @Published var lastUpdated: Date?
     private var timer: Timer?
@@ -77,9 +71,7 @@ final class UsageStore: ObservableObject {
             self.claude = Claude.keepingLastGood(self.claude, after: poll.claude)
             self.openCodeGo = poll.openCodeGo
             self.openRouter = poll.openRouter
-            self.codexSeats = poll.codexSeats.map {
-                CodexSeatState(email: $0.email, result: $0.result)
-            }
+            self.codexSeats = poll.codexSeats
             lastUpdated = Date()
             firstFetchDone = true
         }
